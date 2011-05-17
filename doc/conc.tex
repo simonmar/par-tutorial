@@ -229,8 +229,8 @@ web-page-downloading example:
 do
    a1 <- async $ getURL "http://www.wikipedia.org/wiki/Shovel"
    a2 <- async $ getURL "http://www.wikipedia.org/wiki/Spade"
-   r1 <- wait m1
-   r2 <- wait m2
+   r1 <- wait a1
+   r2 <- wait a2
    return (r1,r2)
 \end{numhaskell}
 
