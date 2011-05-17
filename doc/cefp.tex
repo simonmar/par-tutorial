@@ -36,11 +36,12 @@
 %      - geturlscancel: wait isn't async-safe, make it so
 
 % ToDo:
-%   - upload the repo to github
 %   - add exercises
 
 % ToDo in the future:
 %   \Subsection{conc-data}{Shared concurrent data structures}
+
+\newcommand{\version}{1.0}
 
 \definecolor{myred}{rgb}{1.0,0.0,0.0}
 \newcommand{\pgwrapper}[2]{\textcolor{myred}{#1: #2}}
@@ -116,9 +117,9 @@
 % -----------------------------------------------------------------------------
 
 \title{Parallel and Concurrent Programming in Haskell
-  \\ \normalsize{version 1.0}}
+  \\ \normalsize{version \version}}
 
-\author{Simon Marlow\\Microsoft Research Ltd., Cambridge, U.K.}
+\author{Simon Marlow\\\texttt{simonamr@microsoft.com}\\Microsoft Research Ltd., Cambridge, U.K.}
 
 \begin{document}
 
@@ -202,7 +203,7 @@ currently part of the Haskell Platform.  To install it, use the
 $ cabal install monad-par
 \end{verbatim}}
 
-(The examples in this tutorial were tested with @monad-par@ version 0.1.0.1).
+\noindent (The examples in this tutorial were tested with @monad-par@ version 0.1.0.1).
 
 Additionally, we recommend installing
 ThreadScope\footnote{\url{http://research.microsoft.com/en-us/projects/threadscope/}}.
@@ -233,7 +234,11 @@ specification.  That may change in the future.
 
 \Subsubsection{sample}{Sample Code}
 
-
+The repository containing the source for both this document and the
+code samples can be found at
+\url{https://github.com/simonmar/par-tutorial}.  The current version
+can be downloaded from
+\url{http://community.haskell.org/~simonmar/par-tutorial/par-tutorial-\version.tar.gz}.
 
 \Subsection{terminology}{Terminology: Parallelism and Concurrency}
 
