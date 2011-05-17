@@ -17,3 +17,6 @@ kmeans-example.png : kmeans-example-points kmeans-example-clusters
 kmeans-results.png : kmeans-results
 	gnuplot -e 'set key off; set terminal png; plot "kmeans-results" with linespoints' >$@
 
+
+upload : cefp.pdf
+	scp cefp.pdf community:public_html/par-tutorial/par-tutorial.pdf
