@@ -1,0 +1,320 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{listings}
+\usepackage{color}
+\usepackage{code}
+\usepackage{graphicx}
+\usepackage{hyperref}
+
+\usepackage{natbib}
+\bibpunct();A{},
+\let\cite=\citep
+
+%include lhs2TeX.fmt
+
+\newcommand{\comment}[1]{}
+
+\newcommand{\Section}[2]{\section{#2}\label{sec:#1}}
+\newcommand{\Subsection}[2]{\subsection{#2}\label{sec:#1}}
+\newcommand{\Subsubsection}[2]{\subsubsection{#2}\label{sec:#1}}
+\newcommand{\secref}[1]{Section~\ref{sec:#1}}
+\newcommand{\figref}[1]{Figure~\ref{fig:#1}}
+\newcommand{\lstref}[1]{Listing~\ref{lst:#1}}
+
+% exercises
+%   - Parallelism:
+%      - parallelise sudoku beyond 1000 problems (need clustering or parBuffer)
+%      - monad-par: parallel type checking?
+%   - Concurrency:
+%      - Twitter (translating tweets?)
+%      - make a bounded channel from MVars or STM
+%      - write a version of TMVars that has single-wakeup and fairness
+%      - make a channel implementation using Data.Seq.  Is it faster?
+%      - modify the server to only allow a fixed number of clients
+%      - write a program to generate load for the server. How many
+%        concurrent connections can it cope with?
+%      - geturlscancel: wait isn't async-safe, make it so
+
+% ToDo:
+%   - upload the repo to github
+%   - add exercises
+
+% ToDo in the future:
+%   \Subsection{conc-data}{Shared concurrent data structures}
+
+\definecolor{myred}{rgb}{1.0,0.0,0.0}
+\newcommand{\pgwrapper}[2]{\textcolor{myred}{#1: #2}}
+\newcommand{\ToDo}[1]{\pgwrapper{ToDo}{#1}}
+
+% -----------------------------------------------------------------------------=
+% Haskell listing style
+
+% Taken from
+%  http://ulissesaraujo.wordpress.com/2008/03/30/latex-listings-package-haskell/
+% and modified (quite a lot)
+
+\definecolor{lightgray}{gray}{0.96}
+\definecolor{gray_ulisses}{gray}{0.55}
+\definecolor{castanho_ulisses}{rgb}{0.71,0.33,0.14}
+\definecolor{preto_ulisses}{rgb}{0.41,0.20,0.04}
+\definecolor{green_ulises}{rgb}{0.2,0.75,0}
+
+\lstdefinelanguage{HaskellUlisses} {
+        basicstyle=\ttfamily\footnotesize,
+	sensitive=true,
+        morecomment=[l][\color{gray_ulisses}\ttfamily]{--},
+        morecomment=[s][\color{gray_ulisses}\ttfamily]{\{-}{-\}},
+	morestring=[b]",
+	stringstyle=\color{red},
+	showstringspaces=false,
+        numberblanklines=false,
+	showspaces=false,
+	breaklines=true,
+	showtabs=false,
+        backgroundcolor=\color{lightgray},
+        emph=
+        {[1]
+		case,class,data,deriving,do,else,if,import,in,infixl,infixr,instance,let,
+                module,of,primitive,then,type,where,foreign,import,export,ccall
+        },
+        emphstyle={[1]\color{blue}},
+	emph=
+	{[2]
+        },
+	emphstyle={[2]\color{castanho_ulisses}},
+	emph=
+	{[3]
+        },
+	emphstyle={[3]\color{preto_ulisses}\textbf},
+	emph=
+	{[4]
+        },
+	emphstyle={[4]\color{castanho_ulisses}\textbf},
+	emph=
+	{[5]
+        },
+	emphstyle={[5]\color{preto_ulisses}\textbf}
+}
+
+\lstdefinestyle{numbers}
+  {numbers=left, stepnumber=1, numberstyle=\color{gray_ulisses}\tiny, numbersep=10pt}
+\lstdefinestyle{nonumbers}
+  {numbers=none}
+
+\lstnewenvironment{haskell}
+{\lstset{language=HaskellUlisses,style=nonumbers}}
+{}
+
+\lstnewenvironment{numhaskell}
+{\lstset{language=HaskellUlisses,style=numbers}}
+{}
+
+\lstnewenvironment{floathaskell}
+{\lstset{language=HaskellUlisses,style=numbers}}
+{}
+
+% -----------------------------------------------------------------------------
+
+\title{Parallel and Concurrent Programming in Haskell
+  \\ \normalsize{version 1.0}}
+
+\author{Simon Marlow\\Microsoft Research Ltd., Cambridge, U.K.}
+
+\begin{document}
+
+\maketitle
+\makeatactive
+
+\tableofcontents
+
+% \begin{abstract}
+% \end{abstract}
+
+\Section{intro}{Introduction}
+
+While most programming languages nowadays provide some form of
+concurrent or parallel programming facilities, very few provide as
+wide a range as Haskell.  The Haskell language is fertile ground on
+which to build abstractions, and concurrency and parallelism are no
+exception here.  In the world of concurrency and parallelism, there is
+good reason to believe that no \emph{one size fits all} programming
+model for concurrency and parallelism exists, and so prematurely
+committing to one particular paradigm is likely to tilt the language
+towards favouring certain kinds of problem.  Hence in Haskell we focus
+on providing a wide range of abstractions and libraries, so that for
+any given problem it should be possible to find a tool that suits the
+task at hand.
+
+In this tutorial I will introduce the main programming models
+available for concurrent and parallel programming in Haskell.  The
+tutorial is woefully incomplete --- there is simply too much ground to
+cover, but it is my hope that future revisions of this document will
+expand its coverage.  In the meantime it should serve as an
+introduction to the fundamental concepts through the use of practical
+examples, together with pointers to further reading for those who wish
+to find out more.
+
+This tutorial takes a deliberately practical approach: most of the
+examples are real Haskell programs that you can compile, run, measure,
+modify and experiment with.  For information on how to obtain the code
+samples, see \secref{sample}.  There is also a set of accompanying
+exercises.
+
+In order to follow this tutorial you should have a basic knowledge of
+Haskell, including programming with monads.
+
+Briefly, the topics covered in this tutorial are as follows:
+
+\begin{itemize}
+\item Parallel programming with the @Eval@ monad (\secref{par-eval})
+\item Evaluation Strategies (\secref{strategies})
+\item Dataflow parallelism with the @Par@ monad (\secref{monad-par})
+\item Basic Concurrent Haskell (\secref{concurrent})
+\item Asynchronous exceptions (\secref{async-exceptions})
+\item Software Transactional Memory (\secref{stm})
+\item Concurrency and the FFI (\secref{conc-ffi})
+\item High-speed concurrent servers (\secref{conc-io})
+\end{itemize}
+
+One useful aspect of this tutorial as compared to previous tutorials
+covering similar ground (\cite{awkward,pjsingh-tutorial}) is that I have been
+able to take into account recent changes to the APIs.  In particular,
+the @Eval@ monad has replaced @par@ and @pseq@ (thankfully), and in
+asynchronous exceptions @mask@ has replaced the old @block@ and
+@unblock@.
+
+\Subsection{tools}{Tools and resources}
+
+To try out Parallel and Concurrent Haskell, and to run the sample
+programs that accompany this article, you will need to install the
+Haskell Platform\footnote{\url{http://hackage.haskell.org/platform/}}.
+The Haskell Platform includes the GHC compiler and all the important
+libraries, including the parallel and concurrent libraries we shall be
+using.  This version of the tutorial was tested with the Haskell
+Platform version 2011.2.0.1, and we expect to update this tutorial as
+necessary to cover future changes in the platform.
+
+\secref{monad-par} requires the @monad-par@ package, which is not
+currently part of the Haskell Platform.  To install it, use the
+@cabal@ command:
+
+{\small \begin{verbatim}
+$ cabal install monad-par
+\end{verbatim}}
+
+(The examples in this tutorial were tested with @monad-par@ version 0.1.0.1).
+
+Additionally, we recommend installing
+ThreadScope\footnote{\url{http://research.microsoft.com/en-us/projects/threadscope/}}.
+ThreadScope is a tool for visualising the execution of Haskell
+programs, and is particularly useful for gaining insight into the
+behaviour of parallel and concurrent Haskell code.  ThreadScope can be
+installed with a simple @cabal install threadscope@ on some systems
+(mainly Linux), but for other systems refer to the ThreadScope
+documentation at the aforementioned URL.
+
+While reading the article we recommend you have the following
+documentation to hand:
+
+\begin{itemize}
+\item The GHC User's
+  Guide\footnote{\url{http://www.haskell.org/ghc/docs/latest/html/users_guide/}},
+
+\item The Haskell Platform library documentation, which can be found
+  on the main Haskell Platform
+  site\footnote{\url{http://hackage.haskell.org/platform/}}.  Any
+  types or functions that we use in this article that are not
+  explicitly described can be found documented there.
+\end{itemize}
+
+It should be noted that none of the APIs described in this tutorial
+are \emph{standard} in the sense of being part of the Haskell
+specification.  That may change in the future.
+
+\Subsubsection{sample}{Sample Code}
+
+
+
+\Subsection{terminology}{Terminology: Parallelism and Concurrency}
+
+In many fields, the words \emph{parallel} and \emph{concurrent} are
+synonyms; not so in programming, where they are used to describe
+fundamentally different concepts.
+
+A \emph{parallel} program is one that uses a multiplicity of
+computational hardware (e.g. multiple processor cores) in order to
+perform computation more quickly.  Different parts of the computation
+are delegated to different processors that execute at the same time
+(in \emph{parallel}), so that results may be delivered earlier than if
+the computation had been performed sequentially.
+
+In contrast, \emph{concurrency} is a program-structuring technique in
+which there are multiple \emph{threads of control}.  Notionally the
+threads of control execute ``at the same time''; that is, the user
+sees their effects interleaved.  Whether they actually execute at the
+same time or not is an implementation detail; a concurrent program can
+execute on a single processor through interleaved execution, or on
+multiple physical processors.
+
+While parallel programming is concerned only with efficiency,
+Concurrent programming is concerned with structuring a program that
+needs to interact with multiple independent external agents (for
+example the user, a database server, and some external clients).
+Concurrency allows such programs to be \emph{modular}; the thread that
+interacts with the user is distinct from the thread that talks to the
+database.  In the absence of concurrency, such programs have to be
+written with event loops and callbacks---indeed, event loops and
+callbacks are often used even when concurrency is available, because
+in many languages concurrency is either too expensive, or too
+difficult, to use.
+
+The notion of ``threads of control'' does not make sense in a purely
+functional program, because there are no effects to observe, and the
+evaluation order is irrelevant.  So concurrency is a structuring
+technique for effectful code; in Haskell, that means code in the @IO@
+monad.
+
+A related distinction is between \emph{deterministic} and
+\emph{nondeterministic} programming models.  A deterministic
+programming model is one in which each program can give only one
+result, whereas a nondeterministic programming model admits programs
+that may have different results, depending on some aspect of the
+execution.  Concurrent programming models are necessarily
+nondeterministic, because they must interact with external agents that
+cause events at unpredictable times.  Nondeterminism has some notable
+drawbacks, however: programs become significantly harder to test and
+reason about.
+
+For parallel programming we would like to use deterministic
+programming models if at all possible.  Since the goal is just to
+arrive at the answer more quickly, we would rather not make our
+program harder to debug in the process.  Deterministic parallel
+programming is the best of both worlds: testing, debugging and
+reasoning can be performed on the sequential program, but the program
+runs faster when processors are added.  Indeed, most computer
+processors themselves implement deterministic parallelism in the form
+of pipelining and multiple execution units.
+
+While it is possible to do parallel programming using concurrency,
+that is often a poor choice, because concurrency sacrifices
+determinism.  In Haskell, the parallel programming models are
+deterministic.  However, it is important to note that deterministic
+programming models are not sufficient to express all kinds of parallel
+algorithms; there are algorithms that depend on internal
+nondeterminism, particularly problems that involve searching a
+solution space.  In Haskell, this class of algorithms is expressible
+only using concurrency.
+
+Finally, it is entirely reasonable to want to mix parallelism and
+concurrency in the same program.  Most interactive programs will need
+to use concurrency to maintain a responsive user interface while the
+compute intensive tasks are being performed.
+
+\input{par}
+
+\input{conc}
+
+\bibliographystyle{plainnat}
+\bibliography{cefp}
+
+\end{document}
