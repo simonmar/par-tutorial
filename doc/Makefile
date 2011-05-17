@@ -19,4 +19,4 @@ kmeans-results.png : kmeans-results
 
 
 upload : cefp.pdf
-	scp cefp.pdf community:public_html/par-tutorial/par-tutorial.pdf
+	scp cefp.pdf community:public_html/par-tutorial.pdf

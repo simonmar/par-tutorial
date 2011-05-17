@@ -5,3 +5,7 @@ Parallel and Concurrent Programming with Haskell
 
 This repository contains the source for the tutorial document (in the
 subdirectory doc/), and the code samples (in the subdirectory code/).
+
+A formatted copy of the document can be found at
+
+  http://community.haskell.org/~simonmar/par-tutorial.pdf
