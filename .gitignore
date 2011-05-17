@@ -11,6 +11,8 @@
 *.hi
 *.eventlog
 
+/doc/cefp.pdf
+
 /code/fork
 /code/geturls
 /code/geturlscancel
