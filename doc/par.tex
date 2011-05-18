@@ -17,7 +17,7 @@ readily analysed.  In contrast, when effects are unrestricted,
 analysis of dependencies tends to be much harder, leading to greater
 approximation and a large degree of false dependencies.  However, even
 in a language with only data dependencies, automatic parallelisation
-still suffers from an age-old problem: managing parallel taks requires
+still suffers from an age-old problem: managing parallel tasks requires
 some bookkeeping relative to sequential execution and thus has an
 inherent overhead, so the size of the parallel tasks must be large
 enough to overcome the overhead.  Analysing costs at compile time is
@@ -43,7 +43,7 @@ associated with parallel programming:
   dependencies.  Communication involves the transmission of results
   between tasks running on different processors.  Synchronisation is
   handled automatically by the GHC runtime system and/or the
-  paralllelism libraries.  Communication is implicit in GHC since all
+  parallelism libraries.  Communication is implicit in GHC since all
   tasks share the same heap, and can share objects without
   restriction.  In this setting, although there is no explicit
   communication at the program level or even the runtime level, at the
@@ -94,7 +94,7 @@ abstractions in Haskell to perform some computations in parallel.  As
 a running example that you can actually test yourself, we use a Sudoku
 solver\footnote{The Sudoku solver code can be found in the module
   @Sudoku.hs@ in the samples that accompany this tutorial.}.  The
-sudoku solver is very fast, and can solve all 49,000 of the known
+Sudoku solver is very fast, and can solve all 49,000 of the known
 puzzles with 17
 clues\footnote{\url{http://mapleta.maths.uwa.edu.au/~gordon/sudokumin.php}}
 in about 2 minutes.
@@ -484,7 +484,7 @@ the latter requirement in more detail in \secref{parlist}.
 \label{fig:sudoku3-zoom-threadscope}
 \end{figure}
 
-The threadscope profile looks much better
+The ThreadScope profile looks much better
 (\figref{sudoku3-threadscope}).  Furthermore, now that the runtime is
 managing the work distribution for us, the program will automatically
 scale to more processors.  On an 8 processor machine, for example:
@@ -503,7 +503,7 @@ fact, zooming in on this section in ThreadScope
 are working, but most of the activity is garbage collection, and only
 one processor is performing most of the garbage collection work.  In
 fact, what we are seeing here is the program reading the input file
-(lazilly) and dividing it into lines, driven by the demand of @parMap@
+(lazily) and dividing it into lines, driven by the demand of @parMap@
 which traverses the whole list of lines.
 
 Since reading the file and dividing it into lines is a sequential
@@ -571,7 +571,7 @@ type Strategy a = a -> Eval a
 returned by a @Strategy@ is observably equivalent to the value it was
 passed.  Unfortunately the library cannot statically guarantee this
 property for user-defined @Strategy@ functions, but it holds for the
-@Strategy@ funcitons and combinators provided by the
+@Strategy@ functions and combinators provided by the
 @Control.Parallel.Strategies@ module.
 
 We have already seen some simple Strategies, @rpar@ and @rseq@,
@@ -595,7 +595,7 @@ rdeepseq x = rseq (deep x)
 \noindent @r0@ is the @Strategy@ that evaluates nothing, and
 @rdeepseq@ is the @Strategy@ that evaluates the entire structure of
 its argument (it can be defined in terms of @deep@ that we saw
-eariler).
+earlier).
 
 We have some simple ways to build Strategies, but how is a Strategy
 actually \emph{used}?  A @Strategy@ is just a function yielding a
@@ -620,7 +620,7 @@ applies the Strategy to the value.  The identity property for
 \noindent which is a significant benefit of Strategies: every
 occurrence of @`using` s@ can be deleted without affecting the
 semantics.  Strictly speaking there are two caveats to this property.
-Firstly, as mentioned earlier, user-defined @Strategy@ functions migh0t
+Firstly, as mentioned earlier, user-defined @Strategy@ functions might
 not satisfy the identity property.  Secondly, @x `using` s@ might be
 less defined than @x@, because it evaluates more structure of @x@ than
 the context does.  So deleting @`using` s@ might have the effect of
@@ -667,7 +667,7 @@ parList strat (x:xs) = do
 @Control.Parallel.Strategies@ so you don't have to define it yourself,
 but we are using its implementation here as an illustration).
 
-The @parList@ function is a \emph{paramterised} Strategy, that is, it
+The @parList@ function is a \emph{parameterised} Strategy, that is, it
 takes as an argument a Strategy on values of type @a@, and returns a
 Strategy for lists of @a@.  This illustrates another important aspect
 of Strategies: they are compositional, in the sense that we can build
@@ -727,7 +727,7 @@ required by the program.  If the runtime finds that the spark pool
 contains a reference to an object that the program will never use,
 then the reference is dropped, and any potential parallelism it
 represented is lost.  This behaviour is a deliberate policy; if it
-weren't this way, then the spark pool could retain data indefintely,
+weren't this way, then the spark pool could retain data indefinitely,
 causing a space leak (details can be found in \citet{seq-no-more}).
 
 This is the reason for the list @xs'@.  Suppose we did not build the

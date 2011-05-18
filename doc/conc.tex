@@ -3,7 +3,7 @@
 Concurrent Haskell \cite{jones96concurrent} is an extension to Haskell
 2010 \cite{haskell2010} adding support for explicitly threaded
 concurrent programming.  The basic interface remains largely unchanged
-in its current implementation, although a number of embelishments have
+in its current implementation, although a number of embellishments have
 since been added, which we will cover in later sections:
 
 \begin{itemize}
@@ -114,7 +114,7 @@ putMVar      :: MVar a -> a -> IO ()
 \noindent An @MVar@ can be thought of as a box that is either empty
 or full; @newEmptyMVar@ creates a new empty box.  The @takeMVar@
 operation puts a value into the box, but blocks (waits) if the box is
-already full.  Symetrically, the @putMVar@ operation removes the value
+already full.  Symmetrically, the @putMVar@ operation removes the value
 from a full box but blocks if the box is empty.  An @MVar@ can also be
 thought of as a 1-place bounded channel.
 
@@ -288,7 +288,7 @@ readChan  :: Chan a -> IO a
 \citet{jones96concurrent} (although the names were slightly
 different), and is available in the Haskell module
 @Control.Concurrent.Chan@.  The structure of the implementation is
-represented diagramatically in \figref{channels}, where each bold box
+represented diagrammatically in \figref{channels}, where each bold box
 represents an @MVar@ and the lighter boxes are ordinary Haskell data
 structures.  The current contents of the channel are represented as a
 @Stream@, defined like this:
@@ -494,7 +494,7 @@ applies to threads blocked in @putMVar@ when there are regular
 blocked thread, because another thread might run first and take
 (respectively put) the @MVar@, causing the newly woken thread to go to
 the back of the queue again, which would invalidate the fairness
-guarantee.  The implemetnation must therefore atomically wake up the
+guarantee.  The implementation must therefore atomically wake up the
 blocked thread \emph{and} perform the blocked operation, which is
 exactly what GHC does.
 
@@ -615,7 +615,7 @@ exception that may arise \emph{at any time} because the user pressed
 the ``stop'' button.  We call the latter kind an \emph{asynchronous}
 exception, for obvious reasons.  (We do not review the Haskell support
 for \emph{synchronous} exceptions here; for that see the Haskell 2010
-report \cite{haskell2010} and the documentaiton for the
+report \cite{haskell2010} and the documentation for the
 @Control.Exception@ module).
 
 To initiate an asynchronous exception, Haskell provides the @throwTo@
@@ -869,7 +869,7 @@ bracket before after during =
 \Subsubsection{timeout}{Timeouts}
 
 A good illustration of programming with asynchronous exceptions is to
-write a funciton that can impose a time limit on given action.  We
+write a function that can impose a time limit on given action.  We
 want to provide the timeout wrapper as a combinator of the following
 type:
 
@@ -1284,7 +1284,7 @@ Therefore we represent that by a @TVar@:
 type UserFocus = TVar Desktop
 \end{haskell}
 
-Next, we define an auxilliary function @getWindows@ that, given the
+Next, we define an auxiliary function @getWindows@ that, given the
 @Display@ and the @UserFocus@, returns the set of windows to render,
 in the @STM@ monad.  The implementation is straightforward: read the
 current focus, and look up the contents of the appropriate desktop in
@@ -1334,7 +1334,7 @@ another thread has successfully completed a transaction that writes to
 one of the @TVar@s that is read by @getWindows@.  That encompasses
 both changes to the @focus@ (because the user switched to a different
 desktop), and changes to the contents of the current desktop (because
-a window moved, appeared, or disappeared).  Futhermore, changes to
+a window moved, appeared, or disappeared).  Furthermore, changes to
 other desktops can take place without the rendering thread being woken
 up.
 
@@ -1356,9 +1356,9 @@ As a second concrete example, we shall implement the @Chan@ type from
 \secref{channels} using STM.  We shall see that using STM to implement
 @Chan@ is rather less tricky than using @MVar@s, and furthermore we
 are able to add some more complex operations that were hard or
-imppossible using @MVar@s.
+impossible using @MVar@s.
 
-The STM version of @Chan@ is called @TChan@\footnote{the impementation
+The STM version of @Chan@ is called @TChan@\footnote{the implementation
   is available in the module @Control.Concurrent.STM.TChan@ from the
   @stm@ package.}, and the interface we wish to implement is as
 follows:
@@ -1486,7 +1486,7 @@ orElse :: STM a -> STM a -> STM a
 \end{itemize}
 
 We can use @orElse@ to compose blocking operations atomically.
-Returning to our example, @readEitherTChan@ could be imlpemented as
+Returning to our example, @readEitherTChan@ could be implemented as
 follows:
 
 \begin{haskell}
@@ -1723,7 +1723,7 @@ foreign call.
 
 The implication of this design is that a foreign call may be executed
 in \emph{any} OS thread, and subsequent calls may even be executed in
-differens OS threads. In most cases this isn't important, but
+different OS threads. In most cases this isn't important, but
 sometimes it is: some foreign code must be called by a \emph{particular}
 OS thread.  There are two instances of this requirement:
 
@@ -1747,7 +1747,7 @@ calls made by the Haskell thread always take place in the associated
 OS thread.  A bound thread is created by @forkOS@:
 
 \begin{haskell}
-forkOS :: IO () -> IO ()
+forkOS :: IO () -> IO ThreadId
 \end{haskell}
 
 \noindent Care should be taken when calling @forkOS@: it creates a
@@ -1841,7 +1841,7 @@ talk h = do
                loop
 \end{numhaskell}
 
-\noindent Line 3 sets the bufferring mode for the @Handle@ to
+\noindent Line 3 sets the buffering mode for the @Handle@ to
 line-buffering; if we don't do that then output sent to the @Handle@
 will be buffered up by the I/O layer until there is a full block
 (which is more efficient for large transfers, but not useful for
