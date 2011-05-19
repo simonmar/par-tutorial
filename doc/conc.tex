@@ -824,7 +824,7 @@ function @problem@ above is generally useful when working with
 @MVar@s, and is provided under the name @modifyMVar_@ in the
 @Control.Concurrent.MVar@ library.
 
-\Subsubsection{async-safety}{Asyncrhonous-exception safety}
+\Subsubsection{async-safety}{Asynchronous-exception safety}
 
 All that is necessary for most code to be safe in the presence of
 asynchronous exceptions is to use operations like @modifyMVar_@
@@ -1009,7 +1009,7 @@ straightforward, following a few simple rules:
       inside @mask@.  Note that inside @mask@ it is important to
       remember that asynchronous exceptions can still arise out of
       interruptible operations; the documentation contains a list of
-      operations that are guarnateed \emph{not} to be interruptible.
+      operations that are guaranteed \emph{not} to be interruptible.
     \item Using Software Transactional Memory (STM) instead of @MVar@s
       or other state representations can sweep away all the complexity
       in one go.  We will describe STM in \secref{stm}.
