@@ -1190,7 +1190,7 @@ here, all we need to do is express the graph in the @Par@ monad:
 do
    [ia,ib,ic] <- replicateM 4 new
 
-   fork $ do x <- get in
+   fork $ do x <- get input
              put ia (f x)
 
    fork $ do a <- get ia
@@ -1201,7 +1201,7 @@ do
 
    fork $ do b <- get ib
              c <- get ic
-             put out (j b c)
+             put output (j b c)
 \end{haskell}
 
 \noindent For each edge in the graph we make an @IVar@ (here @ia@,

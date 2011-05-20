@@ -112,9 +112,9 @@ putMVar      :: MVar a -> a -> IO ()
 \end{haskell}
 
 \noindent An @MVar@ can be thought of as a box that is either empty
-or full; @newEmptyMVar@ creates a new empty box.  The @takeMVar@
+or full; @newEmptyMVar@ creates a new empty box.  The @putMVar@
 operation puts a value into the box, but blocks (waits) if the box is
-already full.  Symmetrically, the @putMVar@ operation removes the value
+already full.  Symmetrically, the @takeMVar@ operation removes the value
 from a full box but blocks if the box is empty.  An @MVar@ can also be
 thought of as a 1-place bounded channel.
 
@@ -294,7 +294,7 @@ structures.  The current contents of the channel are represented as a
 @Stream@, defined like this:
 
 \begin{haskell}
-type Stream a = MVar (ChItem a)
+type Stream a = MVar (Item a)
 data Item a   = Item a (Stream a)
 \end{haskell}
 
@@ -334,7 +334,7 @@ writeChan :: Chan a -> a -> IO ()
 writeChan (Chan _ writeVar) val = do
   new_hole <- newEmptyMVar
   old_hole <- takeMVar writeVar
-  putMVar write new_hole
+  putMVar writeVar new_hole
   putMVar old_hole (Item val new_hole)
 \end{haskell}
 
@@ -348,7 +348,7 @@ readChan :: Chan a -> IO a
 readChan (Chan readVar _) = do
   stream <- takeMVar readVar
   Item val new <- takeMVar stream
-  putMVar read new
+  putMVar readVar new
   return val
 \end{numhaskell}
 
@@ -415,7 +415,7 @@ readChan :: Chan a -> IO a
 readChan (Chan readVar _) = do
   stream <- takeMVar readVar
   Item val new <- readMVar stream -- modified
-  putMVar read new
+  putMVar readVar new
   return val
 \end{numhaskell}
 
@@ -442,7 +442,7 @@ unGetChan :: Chan a -> a -> IO ()
 unGetChan (Chan readVar _) val = do
    new_read_end <- newEmptyMVar
    read_end <- takeMVar readVar
-   putMVar new_read_end (ChItem val read_end)
+   putMVar new_read_end (Item val read_end)
    putMVar readVar new_read_end
 \end{numhaskell}
 
@@ -600,23 +600,24 @@ removed, even if the operation raises an exception:
 \noindent where @bracket@ is defined thus:
 
 \begin{haskell}
-bracket :: IO a -> (a -> IO b) -> (a -> IO c) -> IO c
+bbracket :: IO a -> (a -> IO b) -> (a -> IO c) -> IO c
 bracket before after during = do
-  before
-  during `catch` \e -> do after; throw e
-  after
+  a <- before
+  b <- during a `onException` after a
+  after a
+  return b
 \end{haskell}
 
-\noindent we want exception handlers to run in the event of
-cancellation, so cancellation should be an exception.  However,
-there's a fundamental difference between the kind of exception thrown
-by @openFile@ when the file does not exist, for example, and an
-exception that may arise \emph{at any time} because the user pressed
-the ``stop'' button.  We call the latter kind an \emph{asynchronous}
-exception, for obvious reasons.  (We do not review the Haskell support
-for \emph{synchronous} exceptions here; for that see the Haskell 2010
-report \cite{haskell2010} and the documentation for the
-@Control.Exception@ module).
+We want exception handlers to run in the event of cancellation, so
+cancellation should be an exception.  However, there's a fundamental
+difference between the kind of exception thrown by @openFile@ when the
+file does not exist, for example, and an exception that may arise
+\emph{at any time} because the user pressed the ``stop'' button.  We
+call the latter kind an \emph{asynchronous} exception, for obvious
+reasons.  (We do not review the Haskell support for \emph{synchronous}
+exceptions here; for that see the Haskell 2010 report
+\cite{haskell2010} and the documentation for the @Control.Exception@
+module).
 
 To initiate an asynchronous exception, Haskell provides the @throwTo@
 primitive which throws an exception from one thread to
@@ -799,7 +800,7 @@ can only be raised while @(f a)@ is working, and we have an exception
 handler to catch any exceptions in that case.  But a new problem has
 been introduced: @takeMVar@ might block for a long time, but it is
 inside the @mask@ and so the thread will be unresponsive for that
-time.  Furthermore there's no good reason for mask exceptions during
+time.  Furthermore there's no good reason to mask exceptions during
 @takeMVar@; it would be safe for exceptions to be raised right up
 until the point where @takeMVar@ returns.  Hence, this is exactly the
 behaviour that Haskell defines for @takeMVar@: we designate a small
@@ -838,7 +839,7 @@ writeChan :: Chan a -> a -> IO ()
 writeChan (Chan _ writeVar) val = do
   new_hole <- newEmptyMVar
   old_hole <- takeMVar writeVar
-  putMVar write new_hole
+  putMVar writeVar new_hole
   putMVar old_hole (Item val new_hole)
 \end{numhaskell}
 
@@ -850,7 +851,7 @@ of the @Chan@ will deadlock.  To make it safe, we use @modifyMVar_@:
 writeChan (Chan _ writeVar) val = do
   new_hole <- newEmptyMVar
   modifyMVar_ writeVar $ \old_hole -> do
-    putMVar old_hole (ChItem val new_hole)
+    putMVar old_hole (Item val new_hole)
     return new_hole
 \end{numhaskell}
 
@@ -1127,7 +1128,7 @@ But this raises a problem: what if there is concurrent call to
 @moveWindow@ trying to move a window in the opposite direction?  Both
 calls would succeed at the first @takeMVar@, but block on the second,
 and the result is a deadlock.  This is an instance of the classic
-Dining Philosophers problem \cite{}.
+Dining Philosophers problem. % \cite{}.
 
 One solution is to impose an ordering on the @MVar@s, and require that
 all agents take @MVar@s in the correct order and release them in
