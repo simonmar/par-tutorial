@@ -1256,6 +1256,10 @@ the current transaction has been written to, and then triggers a
 re-run of the current transaction.  Until that happens, the current
 thread is blocked.
 
+\ToDo{perhaps rearrange the text here, at least one reader was
+  confused because the discussion of ``not busy waiting'' occurs
+  before the concrete example.}
+
 As a concrete example, we can use @retry@ to implement the rendering
 thread in our window-manager example.  The behaviour we want is this:
 
@@ -1629,6 +1633,8 @@ $O(\mbox{log}~n)$ or better (on average), but the likelihood that a
 long transaction will fail to commit would still be an issue.  To
 avoid that problem intelligent contention-management is required,
 which is an area of active research.
+
+\ToDo{describe the implementation of retry}
 
 \Subsubsection{stm-summary}{Summary}
 
