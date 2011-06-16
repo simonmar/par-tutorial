@@ -24,7 +24,7 @@
 % exercises
 %   - Parallelism:
 %      - parallelise sudoku beyond 1000 problems (need clustering or parBuffer)
-%      - monad-par: parallel type checking?
+%      - do sudoku using monad-par?
 %   - Concurrency:
 %      - Twitter (translating tweets?)
 %      - make a bounded channel from MVars or STM
@@ -41,6 +41,21 @@
 % ToDo in the future:
 %   \Subsection{conc-data}{Shared concurrent data structures}
 %   more about interpreting ThreadScope profiles
+
+%  * fix the Amdahl's law section.  Reading the file strictly in
+%    sudoku3 is not necessarily a good idea, because it prevents the
+%    parallel solving from being overlapped with the file reading.
+%    In fact, it slows down the 8-core results.
+
+%   * Mention Gustafson's Law?
+
+%   * \Subsection{conc-data}{Shared concurrent data structures}
+
+%   * Mention that mask breaks timeout, and that a library using mask
+%     should probably use forkIOWithUnmask to escape a mask.
+
+%   * async should probably use forkIOWithUnmask, we don't want it to
+%     be affected by a prevailing mask.
 
 \newcommand{\version}{1.1}
 % CHANGES:
