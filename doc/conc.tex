@@ -1103,7 +1103,7 @@ So perhaps we can try to allow more concurrency by having a separate
 @MVar@ for each desktop:
 
 \begin{haskell}
-type Display = Map Desktop (MVar (Set Window)
+type Display = Map Desktop (MVar (Set Window))
 \end{haskell}
 
 \noindent unfortunately this approach quickly runs into problems.
@@ -1403,9 +1403,9 @@ writeTChan (TChan _read write) a = do
 \begin{haskell}
 data TChan a
 
-newTChan   :: IO (TChan a)
-writeTChan :: TChan a -> a -> IO ()
-readTChan  :: TChan a -> IO a
+newTChan   :: STM (TChan a)
+writeTChan :: TChan a -> a -> STM ()
+readTChan  :: TChan a -> STM a
 \end{haskell}
 
 \noindent that is, exactly the same as @Chan@, except that we renamed
