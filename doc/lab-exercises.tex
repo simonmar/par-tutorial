@@ -285,15 +285,20 @@ da: oversætte dette
 \end{verbatim}}
 
 \noindent Compile the program - for this you may
-need to install the @xml@ package first:
+need to install the @xml@ and @utf8-string@ packages first:
 
 {\small \begin{verbatim}
-  $ cabal install xml
+  $ cabal install xml utf8-string
+  $ ghc -threaded -rtsopts -eventlog --make bingtranslator.hs
 \end{verbatim}}
 
 When the program is compiled, run it yourself with some sample
-text. Note how the translations appear slowly - the program queries
-the Bing API for each translation in sequence.
+text\footnote{On Windows you may not see the international characters
+  appear correctly on the console.  First, switch the codepage to
+  UTF-8 with @chcp 65001@.  Then redirect the output of
+  @bingtranslator@ to a file, and open the file in Notepad to see the
+  output correctly.} . Note how the translations appear slowly - the program queries the Bing API
+for each translation in sequence.
 
 \begin{itemize}
 \item Convert the program to perform all the translations
