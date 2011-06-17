@@ -1,0 +1,342 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{listings}
+\usepackage{color}
+\usepackage{code}
+\usepackage{graphicx}
+\usepackage{hyperref}
+
+\usepackage{natbib}
+\bibpunct();A{},
+\let\cite=\citep
+
+%include lhs2TeX.fmt
+
+\input{haskell}
+
+\newcommand{\comment}[1]{}
+
+\newcommand{\Section}[2]{\section{#2}\label{sec:#1}}
+\newcommand{\Subsection}[2]{\subsection{#2}\label{sec:#1}}
+\newcommand{\Subsubsection}[2]{\subsubsection{#2}\label{sec:#1}}
+\newcommand{\secref}[1]{Section~\ref{sec:#1}}
+\newcommand{\figref}[1]{Figure~\ref{fig:#1}}
+\newcommand{\lstref}[1]{Listing~\ref{lst:#1}}
+
+\title{Parallel and Concurrent Programming in Haskell
+  \\ \normalsize{Lab Exercises}}
+
+\author{Simon Marlow\\\texttt{simonmar@microsoft.com}\\Microsoft Research Ltd., Cambridge, U.K.}
+
+\begin{document}
+
+\maketitle
+\makeatactive
+
+% \begin{abstract}
+% \end{abstract}
+
+\Section{par}{Lab 1: Parallel Haskell}
+
+Lines beginning with @$@ are commands that you type at the
+command-line (a terminal in Linux, or a command-prompt in Windows).
+For example:
+
+{\small \begin{verbatim}
+  $ ghc-pkg list
+\end{verbatim}}
+
+\noindent to see what Haskell packages are installed.
+
+First, get the sample code, if you don't already have it:
+
+{\small \begin{verbatim}
+  $  git clone git@github.com:simonmar/par-tutorial.git
+\end{verbatim}}
+
+\noindent Build the code.  There is a @Makefile@, so if your system
+has @make@ installed you should be able to say @make@ to build all the
+programs:
+
+{\small \begin{verbatim}
+  $ cd par-tutorial/code
+  $ make
+\end{verbatim}}
+
+\noindent If not, you can compile any individual program like this:
+
+{\small \begin{verbatim}
+  $ ghc -threaded -rtsopts -eventlog --make -O2 sudoku1.hs
+\end{verbatim}}
+
+\noindent Test that you can get parallel speedup. First, the sequential version:
+
+{\small \begin{verbatim}
+  $ ./sudoku1 sudoku17.1000.txt +RTS -s
+\end{verbatim}}
+
+\noindent Next, the static parallel version:
+
+{\small \begin{verbatim}
+  $ ./sudoku2 sudoku17.1000.txt +RTS -s -N2
+\end{verbatim}}
+
+\noindent Next, the @parMap@ version:
+
+{\small \begin{verbatim}
+  $ ./sudoku3 sudoku17.1000.txt +RTS -s -N2
+\end{verbatim}}
+
+\noindent (the last one should be the fastest)
+
+Now try a larger example, a 16000-problem dataset:
+
+{\small \begin{verbatim}
+  $ ./sudoku1 sudoku17.16000.txt +RTS -s
+  $ ./sudoku3 sudoku17.16000.txt +RTS -s -N2
+\end{verbatim}}
+
+What speedup did you get?  Can you explain the discrepancy? (hint:
+look at the @SPARKS@ line in the @+RTS -s@ output.  GHC's spark pool
+can only hold about 8000 sparks, new sparks are discarded when the
+pool is full).
+
+This example took a while to run, so let's simulate the problem on the
+smaller dataset by reducing the spark pool size to 500:
+
+{\small \begin{verbatim}
+  $ ./sudoku3 sudoku17.1000.txt +RTS -s -N2 -e500
+\end{verbatim}}
+
+Now, to avoid overflowing the spark pool we want to create fewer
+sparks, and so each spark needs to do more work.  Hence we need to
+divide the work into fewer, but larger, chunks.
+
+@Control.Parallel.Strategies@ provides the following function:
+
+{\small \begin{verbatim}
+     parListChunk :: Int -> Strategy a -> Strategy [a]
+\end{verbatim}}
+
+The first argument to parListChunk is the chunk size in list elements,
+and the second is the Strategy to apply to the list elements.
+
+Modify @sudoku3.hs@ to use @parListChunk@.
+
+Try your version on the 1000-problem dataset with a spark pool size of 500:
+
+{\small \begin{verbatim}
+  $ ./sudoku3 sudoku17.1000.txt +RTS -s -N2 -e500
+\end{verbatim}}
+
+\noindent (if you want, try it on the 16000-problem dataset too)
+
+What speedup did you get relative to sudoku1?  Try a few different
+chunk sizes.  Does it make any difference?
+
+The Strategies library includes another operation for parallelising
+list-based operations:
+
+{\small \begin{verbatim}
+    parBuffer :: Int -> Strategy a -> Strategy [a]
+\end{verbatim}}
+
+Rather than dividing the list into chunks, parBuffer processes the
+list in a stream-like way, sparking N elements of the list ahead of
+the current element.  At any given point in time there should be no
+more than N active sparks.
+
+Convert @sudoku3.hs@ to use @parBuffer@, and try it on the
+1000-problem dataset.  What speedup did you get, and how does that
+compare to the results with @parListChunk@?
+
+Try a few different buffer sizes - what difference do they make?
+
+\subsection{Experiments with K-Means}
+
+The code for K-Means is in @par-tutorial/code/kmeans@.  Compile it and
+run it to make sure you can get some parallel speedup.
+
+Run the program like this:
+
+{\small \begin{verbatim}
+ $ ./kmeans seq
+\end{verbatim}}
+
+or
+
+{\small \begin{verbatim}
+ $ ./kmeans par 1000 +RTS -N2
+\end{verbatim}}
+
+to run the parallel version with 1000 chunks on 2 processors.
+
+Note!  This program has to read the data set from disk each time it is
+run, which takes a substantial amount of time.  Therefore it includes
+code internally to measure the time taken to run the actual algorithm,
+and it prints the result at the end.  When computing parallel speedup,
+use this time, not the output from +RTS -s.
+
+As written, the program is structured as map/reduce with a single
+level.  Instead we could structure it as divide and conquer to any
+depth, using the provided functions
+
+\begin{haskell}
+  step   :: Int -> [Cluster] -> [Vector] -> [Cluster]
+  reduce :: Int -> [[Cluster]] -> [Cluster]
+\end{haskell}
+
+\noindent \textbf{Exercise.} Restructure the program to use binary divide-and-conquer.
+
+Hints: the input data set is a list of points and the algorithm
+needs to run repeatedly over it, so it will help to build the tree
+over which we run the divide-and-conquer algorithm up front.
+
+Use a simple binary tree data structure:
+
+\begin{haskell}
+data Tree a = Leaf a
+            | Node (Tree a) (Tree a)
+\end{haskell}
+
+Write a function to convert the list of points into a tree, for
+example:
+
+\begin{haskell}
+mkPointTree
+   :: Int            -- the depth at which to stop dividing
+   -> [Vector]       -- the set of points
+   -> Int            -- number of points
+   -> Tree [Vector]
+\end{haskell}
+
+Next, write a function to implement the divide and conquer:
+
+\begin{haskell}
+divconq :: Tree [Vector] -> [Cluster]
+\end{haskell}
+
+It will help to make this a local function inside the loop function in
+@kmeans_par@, because it needs access to @clusters@, the current
+clusters, and @nclusters@.  At each node of the tree, compute the two
+branches in parallel.  Use either Strategies or the Eval monad
+directly.
+
+Call divconq each time around the loop to compute the new set of
+clusters.
+
+For the depth, try 10 (this will give $2^10$, i.e. 1024 leaves).
+
+Run the program - how much speedup do you see?  How does it compare
+with the original one-level map/reduce?
+
+Sample answer: @par-tutorial/kmeans/kmeans2.hs@
+
+Bonus: modify the divide-and-conquer version to use the Par monad,
+
+Hints:
+\begin{itemize}
+\item replace @import Control.Parallel.Strategies@ with
+    @import Control.Monad.Par@
+
+\item the @divconq@ function needs to change:
+
+  \begin{haskell}
+      divconq :: Tree [Vector] -> Par [Cluster]
+  \end{haskell}
+
+    \noindent and use runPar when calling divconq.  For defining @divconq@ you
+    can use these from the @Control.Monad.Par@ library:
+
+  \begin{haskell}
+      spawn :: a -> Par (IVar a)
+      get   :: IVar a -> Par a
+  \end{haskell}
+\end{itemize}
+
+Sample answer: @par-tutorial/kmeans/kmeans3.hs@
+
+\newpage\Section{conc}{Lab 2: Concurrent Haskell}
+
+The sample code corresponding to the examples in the notes can be
+found in @par-tutorial/code@.  Try the @fork@ example from
+Section~3.1:
+
+{\small \begin{verbatim}
+  $ ghc -threaded -rtsopts -eventlog --make fork.hs
+  $ ./fork
+  ABABABABABABABABABABABABABABABA...
+\end{verbatim}}
+
+\textbf{Exercise 1.} In @par-tutorial/code/bingtranslator.hs@ there is
+a program that translates a line of text into multiple languages using
+the Bing Translate API.  For example:
+
+{\small \begin{verbatim}
+$ ./bingtranslator "translate this"
+"translate this" appears to be in language "en"
+ar: ترجمة هذا
+bg: превод на това
+zh-CHS: 翻译这
+zh-CHT: 翻譯這
+cs: přeložit
+da: oversætte dette
+... etc.
+\end{verbatim}}
+
+\noindent Compile the program and try it yourself.  Note how the
+translations appear slowly - the program queries the Bing API for each
+translation in sequence.
+
+\begin{itemize}
+\item Convert the program to perform all the translations
+  concurrently.  Use the @Async@ API (the code is in the
+  @bingtranslator.hs@ source file).
+\end{itemize}
+
+\textbf{Exercise 2.} Implement a bounded channel type, with the
+following signatures:
+
+\begin{haskell}
+data BoundedChan
+newBoundedChan  :: Int -> IO (BoundedChan a)
+readBoundedChan :: BoundedChan a -> IO a
+writeBoundedChan :: BoundedChan a -> a -> IO ()
+\end{haskell}
+
+\noindent @newBoundedChan@ takes the size of the channel, and
+@writeBoundedChan@ blocks if the channel is full.
+
+Use either @MVar@ or @STM@, or try both for comparison.
+
+\textbf{Exercise 3.} (for the performance-obsessed) Write a program in which
+two threads communicate over a channel, one writing a large number of
+items to the channel and the other reading them.  Measure the time it
+takes, using (a) the @Chan@ type, (b) the @TChan@ type, (c) the
+bounded channel from Exercise 1 (choosing a suitable bound).  Can you
+explain the differences in performance?
+
+\textbf{Exercise 4.} Implement the @MVar@ type using STM, in the most
+obvious way:
+
+\begin{haskell}
+data TMVar a = TVar (Maybe a)
+newEmptyTMVar :: STM (TMVar a)
+takeTMVar     :: TMVar a -> STM a
+putTMVar      :: TMVar a -> a -> STM ()
+\end{haskell}
+
+This @MVar@ variant does not have the properties of \emph{fairness}
+and {single-wakeup} that the standard @MVar@ type does.  Can you
+modify the STM version so that it provides these properties?
+
+\textbf{Exercise 5.} The operation @wait@ in the @Async@ API is not
+async-exception-safe.  Can you make it safe?
+
+%      - make a channel implementation using Data.Seq.  Is it faster?
+%      - modify the server to only allow a fixed number of clients
+%      - write a program to generate load for the server. How many
+%        concurrent connections can it cope with?
+%      - geturlscancel: wait isn't async-safe, make it so
+
+\end{document}
