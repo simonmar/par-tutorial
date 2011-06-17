@@ -1,0 +1,67 @@
+% -----------------------------------------------------------------------------=
+% Haskell listing style
+
+% Taken from
+%  http://ulissesaraujo.wordpress.com/2008/03/30/latex-listings-package-haskell/
+% and modified (quite a lot)
+
+\definecolor{lightgray}{gray}{0.96}
+\definecolor{gray_ulisses}{gray}{0.55}
+\definecolor{castanho_ulisses}{rgb}{0.71,0.33,0.14}
+\definecolor{preto_ulisses}{rgb}{0.41,0.20,0.04}
+\definecolor{green_ulises}{rgb}{0.2,0.75,0}
+
+\lstdefinelanguage{HaskellUlisses} {
+        basicstyle=\ttfamily\footnotesize,
+	sensitive=true,
+        morecomment=[l][\color{gray_ulisses}\ttfamily]{--},
+        morecomment=[s][\color{gray_ulisses}\ttfamily]{\{-}{-\}},
+	morestring=[b]",
+	stringstyle=\color{red},
+	showstringspaces=false,
+        numberblanklines=false,
+	showspaces=false,
+	breaklines=true,
+	showtabs=false,
+        backgroundcolor=\color{lightgray},
+        emph=
+        {[1]
+		case,class,data,deriving,do,else,if,import,in,infixl,infixr,instance,let,
+                module,of,primitive,then,type,where,foreign,import,export,ccall
+        },
+        emphstyle={[1]\color{blue}},
+	emph=
+	{[2]
+        },
+	emphstyle={[2]\color{castanho_ulisses}},
+	emph=
+	{[3]
+        },
+	emphstyle={[3]\color{preto_ulisses}\textbf},
+	emph=
+	{[4]
+        },
+	emphstyle={[4]\color{castanho_ulisses}\textbf},
+	emph=
+	{[5]
+        },
+	emphstyle={[5]\color{preto_ulisses}\textbf}
+}
+
+\lstdefinestyle{numbers}
+  {numbers=left, stepnumber=1, numberstyle=\color{gray_ulisses}\tiny, numbersep=10pt}
+\lstdefinestyle{nonumbers}
+  {numbers=none}
+
+\lstnewenvironment{haskell}
+{\lstset{language=HaskellUlisses,style=nonumbers}}
+{}
+
+\lstnewenvironment{numhaskell}
+{\lstset{language=HaskellUlisses,style=numbers}}
+{}
+
+\lstnewenvironment{floathaskell}
+{\lstset{language=HaskellUlisses,style=numbers}}
+{}
+
