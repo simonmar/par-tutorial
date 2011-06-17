@@ -284,15 +284,28 @@ da: oversætte dette
 ... etc.
 \end{verbatim}}
 
-\noindent Compile the program and try it yourself.  Note how the
-translations appear slowly - the program queries the Bing API for each
-translation in sequence.
+\noindent Compile the program - for this you may
+need to install the @xml@ package first:
+
+{\small \begin{verbatim}
+  $ cabal install xml
+\end{verbatim}}
+
+When the program is compiled, run it yourself with some sample
+text. Note how the translations appear slowly - the program queries
+the Bing API for each translation in sequence.
 
 \begin{itemize}
 \item Convert the program to perform all the translations
   concurrently.  Use the @Async@ API (the code is in the
   @bingtranslator.hs@ source file).
+\item The program also makes two initial queries to the Bing API: one
+  to get the list of supported languages, and another to detect the
+  language in which the initial text is written.  Make these two
+  queries concurrently.
 \end{itemize}
+
+A sample solution can be found in @bingtranslatorconc.hs@.
 
 \textbf{Exercise 2.} Implement a bounded channel type, with the
 following signatures:
