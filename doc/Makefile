@@ -1,4 +1,4 @@
-all : cefp.pdf
+all : cefp.pdf lab-exercises.pdf
 
 clean :
 	rm cefp.pdf *.bbl *.aux *.blg *.log *.out *.toc
@@ -11,6 +11,10 @@ clean :
 
 cefp.pdf : par.tex conc.tex
 
+lab-exercises.pdf : lab-exercises.tex
+	pdflatex $<
+	pdflatex $<
+
 kmeans-example.png : kmeans-example-points kmeans-example-clusters
 	gnuplot -e 'set key off; set terminal png; plot "kmeans-example-points","kmeans-example-clusters" with points pointsize 20 pointtype 6' >$@
 
@@ -20,3 +24,4 @@ kmeans-results.png : kmeans-results
 
 upload : cefp.pdf
 	scp cefp.pdf community:public_html/par-tutorial.pdf
+	scp lab-exercises.pdf community:public_html/lab-exercises.pdf
