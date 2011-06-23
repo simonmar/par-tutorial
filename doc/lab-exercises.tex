@@ -48,7 +48,14 @@ For example:
 
 \noindent to see what Haskell packages are installed.
 
-First, get the sample code, if you don't already have it:
+First, get the sample code, if you don't already have it.  It can be
+downloaded from
+
+{\small \begin{verbatim}
+  http://community.haskell.org/~simonmar/par-tutorial.tar.gz
+\end{verbatim}}
+
+\noindent or alternatively, get it using @git@:
 
 {\small \begin{verbatim}
   $  git clone git://github.com/simonmar/par-tutorial.git
@@ -338,7 +345,7 @@ explain the differences in performance?
 obvious way:
 
 \begin{haskell}
-data TMVar a = TVar (Maybe a)
+newtype TMVar a = TMVar (TVar (Maybe a))
 newEmptyTMVar :: STM (TMVar a)
 takeTMVar     :: TMVar a -> STM a
 putTMVar      :: TMVar a -> a -> STM ()
