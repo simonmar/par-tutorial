@@ -1067,7 +1067,7 @@ instance Monad STM -- amongst other things
 atomically :: STM a -> IO a
 
 data TVar a -- abstract
-newTVar   :: STM (TVar a)
+newTVar   :: a -> STM (TVar a)
 readTVar  :: TVar a -> STM a
 writeTVar :: TVar a -> a -> STM ()
 
