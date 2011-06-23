@@ -406,8 +406,8 @@ the problem?  The definition of @dupChan@ itself is not at fault, but
 combined with the definition of @readChan@ given earlier it does not
 implement the required semantics.  The problem is that @readChan@ does
 not replace the contents of a hole after having read it, so if
-@readChan@ is called to read values from both channels returned by
-@dupChan@, the second call will block.  The fix is to change a
+@readChan@ is called to read values from both the channel returned by
+@dupChan@ and the original channel, the second call will block.  The fix is to change a
 @takeMVar@ to @readMVar@ in the implementation of @readChan@:
 
 \begin{numhaskell}
