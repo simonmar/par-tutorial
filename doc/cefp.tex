@@ -57,6 +57,11 @@
 %   * async should probably use forkIOWithUnmask, we don't want it to
 %     be affected by a prevailing mask.
 
+%   * add a memoize/caching layer to Async, for building things like a
+%     caching DNS lookups.
+%        memoio :: Ord a => (a -> IO b) -> IO (a -> IO b)
+%     (suggestion from Herbert Valerio Riedel)
+
 \newcommand{\version}{1.1}
 % CHANGES:
 %    1.0--1.1  Fix typos, spelling, other small errata
