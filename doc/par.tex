@@ -920,10 +920,11 @@ for this kind of bucket-sorting task.  The function @makeNewClusters@
 implements step 3 of the algorithm, and finally @step@ combines
 @assign@ and @makeNewClusters@ to implement one complete iteration.
 
-To complete the algorithm we need a driver to repeatedly apply the
-@step@ function until convergence.  The function @kmeans_seq@, below,
-implements this:
+To complete the algorithm we need a driver to repeatedly apply the @step@
+function until convergence. The function @kmeans_seq@, in
+\figref{kmeans_seq}, implements this.
 
+\begin{figure}
 \begin{haskell}
 kmeans_seq :: Int -> [Vector] -> [Cluster] -> IO [Cluster]
 kmeans_seq nclusters points clusters = do
@@ -940,6 +941,9 @@ kmeans_seq nclusters points clusters = do
   --
   loop 0 clusters
 \end{haskell}
+\caption{Haskell code for kmeans\_seq}
+\label{fig:kmeans_seq}
+\end{figure}
 
 How can this algorithm be parallelised?  One place that looks
 straightforward to parallelise is the @assign@ function, since it is
