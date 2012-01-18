@@ -22,6 +22,6 @@ kmeans-results.png : kmeans-results
 	gnuplot -e 'set key off; set terminal png; plot "kmeans-results" with linespoints' >$@
 
 
-upload : cefp.pdf
+upload : cefp.pdf lab-exercises.pdf
 	scp cefp.pdf community:public_html/par-tutorial.pdf
 	scp lab-exercises.pdf community:public_html/lab-exercises.pdf
