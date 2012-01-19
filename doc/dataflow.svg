@@ -13,7 +13,7 @@
    height="1052.3622047"
    id="svg6560"
    version="1.1"
-   inkscape:version="0.48.0 r9654"
+   inkscape:version="0.48.2 r9819"
    sodipodi:docname="dataflow.svg">
   <defs
      id="defs6562">
@@ -168,18 +168,18 @@
          sodipodi:role="line"
          id="tspan8088"
          x="224.25388"
-         y="149.28581">a</tspan></text>
+         y="149.28581">A</tspan></text>
     <text
        xml:space="preserve"
        style="font-size:18px;font-style:normal;font-weight:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;font-family:Sans"
-       x="228.29448"
-       y="281.61578"
+       x="221.2234"
+       y="279.59549"
        id="text8090"
        sodipodi:linespacing="125%"><tspan
          sodipodi:role="line"
          id="tspan8092"
-         x="228.29448"
-         y="281.61578">b</tspan></text>
+         x="221.2234"
+         y="279.59549">B</tspan></text>
     <text
        xml:space="preserve"
        style="font-size:18px;font-style:normal;font-weight:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;font-family:Sans"
@@ -190,7 +190,7 @@
          sodipodi:role="line"
          id="tspan8096"
          x="420.22345"
-         y="144.23505">c</tspan></text>
+         y="144.23505">C</tspan></text>
     <text
        xml:space="preserve"
        style="font-size:18px;font-style:normal;font-weight:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;font-family:Sans"
@@ -201,7 +201,7 @@
          sodipodi:role="line"
          id="tspan8100"
          x="428.30469"
-         y="280.60565">d</tspan></text>
+         y="280.60565">D</tspan></text>
     <path
        style="fill:none;stroke:#000000;stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1;marker-end:url(#Arrow1Lend)"
        d="m 37.375644,209.89496 64.649766,0"

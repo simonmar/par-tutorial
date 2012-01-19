@@ -62,9 +62,12 @@
 %        memoio :: Ord a => (a -> IO b) -> IO (a -> IO b)
 %     (suggestion from Herbert Valerio Riedel)
 
-\newcommand{\version}{1.1}
+\newcommand{\version}{1.2}
+% NB. Also modify VERSION in ../Makefile
+
 % CHANGES:
 %    1.0--1.1  Fix typos, spelling, other small errata
+%    1.1--1.2  Action review feedback from CEFP
 
 \definecolor{myred}{rgb}{1.0,0.0,0.0}
 \newcommand{\pgwrapper}[2]{\textcolor{myred}{#1: #2}}
@@ -132,7 +135,7 @@ Briefly, the topics covered in this tutorial are as follows:
 \item Basic Concurrent Haskell (\secref{concurrent})
 \item Asynchronous exceptions (\secref{async-exceptions})
 \item Software Transactional Memory (\secref{stm})
-\item Concurrency and the FFI (\secref{conc-ffi})
+\item Concurrency and the Foreign Function Interface (\secref{conc-ffi})
 \item High-speed concurrent servers (\secref{conc-io})
 \end{itemize}
 
@@ -162,15 +165,20 @@ currently part of the Haskell Platform.  To install it, use the
 $ cabal install monad-par
 \end{verbatim}}
 
-\noindent (The examples in this tutorial were tested with @monad-par@ version 0.1.0.1).
+\noindent (The examples in this tutorial were tested with @monad-par@ version 0.1.0.3).
 
 Additionally, we recommend installing
 ThreadScope\footnote{\url{http://www.haskell.org/haskellwiki/ThreadScope}}.
 ThreadScope is a tool for visualising the execution of Haskell
 programs, and is particularly useful for gaining insight into the
-behaviour of parallel and concurrent Haskell code.  ThreadScope can be
-installed with a simple @cabal install threadscope@ on some systems
-(mainly Linux), but for other systems refer to the ThreadScope
+behaviour of parallel and concurrent Haskell code.  On some systems
+(mainly Linux) ThreadScope can be installed with a simple
+
+{\small \begin{verbatim}
+$ cabal install threadscope
+\end{verbatim}}
+
+\noindent but for other systems refer to the ThreadScope
 documentation at the aforementioned URL.
 
 While reading the article we recommend you have the following
@@ -221,7 +229,7 @@ execute on a single processor through interleaved execution, or on
 multiple physical processors.
 
 While parallel programming is concerned only with efficiency,
-Concurrent programming is concerned with structuring a program that
+concurrent programming is concerned with structuring a program that
 needs to interact with multiple independent external agents (for
 example the user, a database server, and some external clients).
 Concurrency allows such programs to be \emph{modular}; the thread that
@@ -277,6 +285,35 @@ compute intensive tasks are being performed.
 \input{par}
 
 \input{conc}
+
+\Section{conclusion}{Conclusion}
+
+We hope you have found this tutorial useful!  To recap, here are the
+main points and areas we have covered.
+
+Haskell provides several different programming models for
+multiprogramming, broadly divided into two classes: \emph{parallel}
+programming models where the goal is to write programs that make use
+of multiple processors to improve performance, and \emph{concurrency}
+where the goal is to write programs that interact with multiple
+independent external agents.
+
+The Parallel programming models in Haskell are \emph{deterministic},
+that is, these programming models are defined to give the same results
+regardless of how many processors are used to run them.  There are two
+main approaches: @Strategies@, which relies on lazy evaluatation to
+achieve parallelism, and the @Par@ monad which uses a more explicit
+dataflow-graph style for expressing parallel computations.
+
+On the Concurrency side we introduced the basic programming model
+involving threads and @MVar@s for communication, and then described
+Haskell's support for \emph{cancellation} in the form of asynchronous
+exceptions.  Finally we showed how Software Transactional Memory
+allows concurrent abstractions to be built compositionally, and makes
+it much easier to program with asynchronous exceptions.  We also
+covered the use of concurrency with Haskell's Foreign Function
+interface, and looked briefly at how to program concurrent server
+applications in Haskell.
 
 \bibliographystyle{plainnat}
 \bibliography{cefp}

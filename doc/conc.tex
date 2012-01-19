@@ -107,22 +107,24 @@ the @MVar@, whose interface is given below:
 data MVar a  -- abstract
 
 newEmptyMVar :: IO (MVar a)
+newMVar      :: a -> IO (MVar a)
 takeMVar     :: MVar a -> IO a
 putMVar      :: MVar a -> a -> IO ()
 \end{haskell}
 
 \noindent An @MVar@ can be thought of as a box that is either empty
-or full; @newEmptyMVar@ creates a new empty box.  The @putMVar@
+or full; @newEmptyMVar@ creates a new empty box, and @newMVar@ creates
+a new full box containing the value passed as its argument.  The @putMVar@
 operation puts a value into the box, but blocks (waits) if the box is
 already full.  Symmetrically, the @takeMVar@ operation removes the value
-from a full box but blocks if the box is empty.  An @MVar@ can also be
-thought of as a 1-place bounded channel.
+from a full box but blocks if the box is empty.
 
 @MVar@s generalise several simple concurrency abstractions:
 
 \begin{itemize}
 \item @MVar ()@ is a \emph{lock}; @takeMVar@ acquires the lock and
-  @putMVar@ releases it again.  An @MVar@ used in this way can protect
+  @putMVar@ releases it again.\footnote{It works perfectly well the
+    other way around too, just be sure to be consistent about the policy.}  An @MVar@ used in this way can protect
   shared mutable state or critical sections.
 
 \item An @MVar@ is a one-place channel, which can be used for
@@ -172,7 +174,7 @@ do
    return (r1,r2)
 \end{numhaskell}
 
-\noindent Lines 1--2 create two new empty @MVar@s to hold the
+\noindent Lines 2--3 create two new empty @MVar@s to hold the
 results.  Lines 5--7 fork a new thread to download the first URL; when
 the download is complete the result is placed in the @MVar@ @m1@, and
 lines 9--11 do the same for the second URL, placing the result in @m2@.
@@ -280,8 +282,8 @@ the following basic interface:
 data Chan a
 
 newChan   :: IO (Chan a)
-writeChan :: Chan a -> a -> IO ()
 readChan  :: Chan a -> IO a
+writeChan :: Chan a -> a -> IO ()
 \end{haskell}
 
 \noindent This channel implementation first appeared in
@@ -600,12 +602,20 @@ removed, even if the operation raises an exception:
 \noindent where @bracket@ is defined thus:
 
 \begin{haskell}
-bbracket :: IO a -> (a -> IO b) -> (a -> IO c) -> IO c
+bracket :: IO a -> (a -> IO b) -> (a -> IO c) -> IO c
 bracket before after during = do
   a <- before
-  b <- during a `onException` after a
+  c <- during a `onException` after a
   after a
-  return b
+  return c
+\end{haskell}
+
+\noindent and @onException@ executes its first argument, and if an
+exception is thrown, executes its second argument before re-throwing
+the exception.
+
+\begin{haskell}
+onException :: IO a -> IO b -> IO a
 \end{haskell}
 
 We want exception handlers to run in the event of cancellation, so
@@ -675,17 +685,18 @@ cancel (Async t var) = throwTo t ThreadKilled
 
 \noindent (@ThreadKilled@ is an exception provided by the Haskell exception
 library and is typically used for cancelling threads in this way.)
+The implementation of @wait@ is trivial.
 The remaining piece of the implementation is the @async@ operation,
 which must now include an exception handler to catch the exception and
 store it in the @MVar@:
 
 \begin{haskell}
 async :: IO a -> IO (Async a)
-async action = do
-   var <- newEmptyMVar
-   t <- forkIO ((do r <- action; putMVar var (Right r))
-                  `catch` \e -> putMVar var (Left e))
-   return (Async t var)
+async io = do
+   m <- newEmptyMVar
+   t <- forkIO $ (do r <- io; putMVar m (Right r))
+                   `catch` \e -> putMVar m (Left e)
+   return (Async t m)
 \end{haskell}
 
 Now, we can change the @main@ function of the example to support
@@ -759,8 +770,8 @@ problem m f = do
   putMVar m r
 \end{numhaskell}
 
-\noindent There are at least two points where if an asynchronous
-exception strikes the invariant will be violated.  If an exception
+\noindent There are at least two points where, if an asynchronous
+exception strikes, the invariant will be violated.  If an exception
 strikes between lines 2 and 3, or between lines 3 and 4, the @MVar@
 will be left empty.  In fact, there is no way to shuffle around the
 exception handlers to ensure the @MVar@ is always left full.  To fix
@@ -870,7 +881,7 @@ bracket before after during =
 \Subsubsection{timeout}{Timeouts}
 
 A good illustration of programming with asynchronous exceptions is to
-write a function that can impose a time limit on given action.  We
+write a function that can impose a time limit on a given action.  We
 want to provide the timeout wrapper as a combinator of the following
 type:
 
@@ -919,7 +930,7 @@ The code for @timeout@ is shown in \lstref{timeout}; this
 implementation was taken from the library @System.Timeout@ (with some
 cosmetic changes for presentation here).  The implementation is tricky
 to get right.  The basic idea is to fork a new thread that will wait
-for $t$ seconds and then call @throwTo@ to throw the @Timeout@
+for $t$ microseconds and then call @throwTo@ to throw the @Timeout@
 exception back to the original thread; that much seems straightforward
 enough.  However, we must ensure that this thread cannot throw its
 @Timeout@ exception after the call to @timeout@ has returned,
@@ -943,7 +954,7 @@ handleJust :: Exception e
 \end{haskell}
   Its first argument (line 9) selects which exceptions to catch: in
   this case, just the @Timeout@ exception we defined on line 7.  The
-  second argument (lines 10) is the exception handler, which in this
+  second argument (line 10) is the exception handler, which in this
   case just returns @Nothing@, since timeout occurred.
 
   Lines 11--14 are the computation to run in the exception handler.
@@ -952,7 +963,7 @@ handleJust :: Exception e
 
   \begin{itemize}
     \item[11-12] fork the child thread.  In the child thread we wait
-      for $t$ microseconds with @threadDelay@, and then throw the
+      for $n$ microseconds with @threadDelay@, and then throw the
       @Timeout@ exception to the parent thread with @throwTo@.
     \item [13] always kill the child thread before returning.
     \item [14] the body of @bracket@: run the computation @m@ passed
@@ -1003,7 +1014,7 @@ straightforward, following a few simple rules:
   friends) which have built-in asynchronous exception safety.
 \item If state handling starts getting complicated with multiple
   layers of exception handlers, then there are two approaches to
-  simplfying things:
+  simplifying things:
   \begin{itemize}
     \item Switching to polling mode with @mask@ can help manage
       complexity.  The GHC I/O library, for example, runs entirely
@@ -1117,8 +1128,8 @@ moveWindow disp win a b = do
   putMVar ma (Set.delete win wa)
   putMVar mb (Set.insert win wb)
  where
-  ma = fromJust (lookup disp a)
-  mb = fromJust (lookup disp b)
+  ma = fromJust (Map.lookup disp a)
+  mb = fromJust (Map.lookup disp b)
 \end{haskell}
 
 \noindent Note that we must take both @MVar@s before we can put the
@@ -1181,8 +1192,8 @@ moveWindow disp win a b = atomically $ do
   wb <- readTVar mb
   writeTVar mb (Set.insert win wb)
  where
-  ma = fromJust (lookup disp a)
-  mb = fromJust (lookup disp b)
+  ma = fromJust (Map.lookup disp a)
+  mb = fromJust (Map.lookup disp b)
 \end{haskell}
 
 \noindent So STM is far less error-prone here.  The approach also
@@ -1383,21 +1394,21 @@ newTChan = do
   return (TChan read write)
 
 readTChan :: TChan a -> STM a
-readTChan (TChan read _write) = do
-  listhead <- readTVar read
+readTChan (TChan readVar _) = do
+  listhead <- readTVar readVar
   head <- readTVar listhead
   case head of
     TNil -> retry
-    TCons a tail -> do
-	writeTVar read tail
-	return a
+    TCons val tail -> do
+        writeTVar readVar tail
+        return val
 
 writeTChan :: TChan a -> a -> STM ()
-writeTChan (TChan _read write) a = do
-  listend <- readTVar write
+writeTChan (TChan _ writeVar) a = do
   new_listend <- newTVar TNil
+  listend <- readTVar writeVar
+  writeTVar writeVar new_listend
   writeTVar listend (TCons a new_listend)
-  writeTVar write new_listend
 \end{lstlisting}
 
 \begin{haskell}
@@ -1434,7 +1445,7 @@ We now describe three distinct benefits of the STM implementation
 compared to using @MVar@s.
 
 \paragraph{More operations are possible.} In \secref{channels} we
-mentioned the @unGetChan@ operation, which could not be implemented
+mentioned the operation @unGetChan@, which could not be implemented
 with the desired semantics using @MVar@s.  Here is its implementation
 with STM:
 
@@ -1448,8 +1459,8 @@ unGetTChan (TChan read _write) a = do
 
 \noindent The obvious implementation does the right thing here.  Other
 operations that were not possible with @MVar@s are straightforward
-with STM, for example @isEmptyTChan@, which suffers from the same
-problem as @unGetChan@ in the @MVar@ version:
+with STM, for example @isEmptyTChan@, the @MVar@ version of which
+suffers from the same problem as @unGetChan@:
 
 \begin{haskell}
 isEmptyTChan :: TChan a -> STM Bool
@@ -1465,8 +1476,8 @@ isEmptyTChan (TChan read _write) = do
 implement an operation @readEitherTChan@ that can read an element from
 either of two channels.  If both channels are empty it blocks; if one
 channel is non-empty it reads the value from that channel, and if both
-channels are non-empty it chooses which channel to read from
-non-deterministically.  Its type is
+channels are non-empty it is allowed to choose which channel to read
+from.  Its type is
 
 \begin{haskell}
 readEitherTChan :: TChan a -> TChan b -> STM (Either a b)
@@ -1507,14 +1518,14 @@ the only complication is arranging to tag the result with either
 @Left@ or @Right@ depending on which branch succeeds.
 
 In the @MVar@ implementation of @Chan@ there is no way to implement
-@readEitherChan@ without elaborating the representation of @Chan@ to
+the operation @readEitherChan@ without elaborating the representation of @Chan@ to
 support the synchronisation protocol that would be required (more
 discussion on implementing choice with @MVar@s can be found in
 \citet{jones96concurrent}).
 
 One thing to note is that @orElse@ is left-biased; if both @TChan@s
 are non-empty, then @readEitherChan@ will always return an element
-from first one.  Whether this is problematic or not depends on the
+from the first one.  Whether this is problematic or not depends on the
 application: something to be aware of is that the left-biased nature
 of @orElse@ can have implications for fairness in some situations.
 
@@ -1841,10 +1852,11 @@ talk h = do
   loop
  where
   loop = do
-    l <- hGetLine h
-    if l == "end"
-       then hPutStrLn h "Thank you for using the Haskell doubling service."
-       else do hPutStrLn h (show (2 * (read l :: Integer)))
+    line <- hGetLine h
+    if line == "end"
+       then hPutStrLn h ("Thank you for using the " ++
+                         "Haskell doubling service.")
+       else do hPutStrLn h (show (2 * (read line :: Integer)))
                loop
 \end{numhaskell}
 
@@ -1872,7 +1884,7 @@ main = do
     forkIO (talk h `finally` hClose h)
 \end{numhaskell}
 
-\noindent on line 2 we create a network socket to listen on port
+\noindent On line 2 we create a network socket to listen on port
 44444, and then we enter a loop to accept connections from clients
 (line 3).  Line 4 accepts a new client connection: @accept@ blocks
 until a connection request from a client arrives, and then returns a
@@ -1887,9 +1899,9 @@ explanation is needed for the expression passed to @forkIO@:
 \end{haskell}
 
 \noindent @talk@ is the single-client interaction that we defined
-above.  The infix operator @finally@ is a standard exception-handling
-abstraction from @Control.Exception@ rather like a specialised verison
-of @bracket@.  It has the following type
+above.  The function @finally@ is a standard exception-handling
+combinator.  It is rather like a specialised version
+of @bracket@, and has the following type
 
 \begin{haskell}
 finally :: IO a -> IO b -> IO a
@@ -1996,7 +2008,7 @@ complicated.
 
 We have ignored many details that would be necessary in a real server
 application.  The reader is encouraged to think about these and to try
-implementing any requred changes on top of the provided sample code:
+implementing any required changes on top of the provided sample code:
 
 \begin{itemize}
 \item What should happen if the user interrupts the server with
