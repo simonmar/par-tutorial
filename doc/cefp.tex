@@ -78,20 +78,34 @@
 
 % -----------------------------------------------------------------------------
 
-\title{Parallel and Concurrent Programming in Haskell
-  \\ \normalsize{version \version}}
+\title{Parallel and Concurrent Programming in Haskell}
 
 \author{Simon Marlow\\\texttt{simonmar@microsoft.com}\\Microsoft Research Ltd., Cambridge, U.K.}
+\date{}
 
 \begin{document}
 
 \maketitle
 \makeatactive
 
-\tableofcontents
+% turned off for CEFP version:
+% \tableofcontents
 
 % \begin{abstract}
 % \end{abstract}
+
+\begin{abstract}
+Haskell provides a rich set of abstractions for parallel and
+concurrent programming.  This tutorial covers the basic concepts
+involved in writing parallel and concurrent programs in Haskell, and
+takes a deliberately practical approach: most of the examples are real
+Haskell programs that you can compile, run, measure, modify and
+experiment with.  We cover parallel programming with the @Eval@ monad,
+Evaluation Strategies, and the @Par@ monad.  On the concurrent side,
+we cover threads, @MVar@s, asynchronous exceptions, Software
+Transactional Memory, the Foreign Function Interface, and briefly look
+at the construction of high-speed network servers in Haskell.
+\end{abstract}
 
 \Section{intro}{Introduction}
 
