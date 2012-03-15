@@ -113,7 +113,7 @@ putMVar      :: MVar a -> a -> IO ()
 \end{haskell}
 
 \noindent An @MVar@ can be thought of as a box that is either empty
-or full; @newEmptyMVar@ creates a new empty box, and @newMVar@ creates
+or full. The @newEmptyMVar@ operation creates a new empty box, and @newMVar@ creates
 a new full box containing the value passed as its argument.  The @putMVar@
 operation puts a value into the box, but blocks (waits) if the box is
 already full.  Symmetrically, the @takeMVar@ operation removes the value
@@ -225,7 +225,7 @@ reading it, the point being that we might want to call @wait@ multiple
 times, or from different threads.
 
 Now, we can use the @Async@ interface to clean up our
-web-page-downloading example:
+web-page downloading example:
 
 \begin{numhaskell}
 do
@@ -255,7 +255,7 @@ main = mapM (async.http) sites >>= mapM wait
 
 \noindent which results in something like this:
 
-{\small
+{\scriptsize
 \begin{verbatim}
 downloaded: http://www.google.com (14524 bytes, 0.17s)
 downloaded: http://www.bing.com (24740 bytes, 0.18s)
@@ -1300,8 +1300,8 @@ Therefore we represent that by a @TVar@:
 type UserFocus = TVar Desktop
 \end{haskell}
 
-Next, we define an auxiliary function @getWindows@ that, given the
-@Display@ and the @UserFocus@, returns the set of windows to render,
+Next, we define an auxiliary function @getWindows@ that takes the
+@Display@ and the @UserFocus@, and returns the set of windows to render,
 in the @STM@ monad.  The implementation is straightforward: read the
 current focus, and look up the contents of the appropriate desktop in
 the @Display@:

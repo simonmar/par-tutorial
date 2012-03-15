@@ -159,10 +159,10 @@ $ ./sudoku1 sudoku17.1000.txt +RTS -s
       36,829,592 bytes copied during GC
          191,168 bytes maximum residency (11 sample(s))
           82,256 bytes maximum slop
-               2 MB total memory in use (0 MB lost due to fragmentation)
+               2 MB total memory in use
 
-  Generation 0:  4570 collections,     0 parallel,  0.14s,  0.13s elapsed
-  Generation 1:    11 collections,     0 parallel,  0.00s,  0.00s elapsed
+  Generation 0:  4570 collections, 0 parallel, 0.14s, 0.13s elapsed
+  Generation 1:    11 collections, 0 parallel, 0.00s, 0.00s elapsed
 
   Parallel GC work balance: -nan (0 / 0, ideal 1)
 
@@ -253,8 +253,8 @@ sub-lists, @as@ and @bs@.  The next part needs more explanation:
 \begin{itemize}
 \item[3] We are going to @evaluate@ an application of @runEval@
 \item[4] Create a parallel task to compute the solutions to the
-  problems in the sub-list @as@.  The solutions are represented by the
-  expression @map solve as@; however, just evaluating this expression
+  problems in the sub-list @as@.  The expression @map solve as@
+  represents the solutions; however, just evaluating this expression
   to weak-head normal form will not actually compute any of the
   solutions, since it will only evaluate as far as the first @(:)@
   cell of the list.  We need to fully evaluate the whole list,
@@ -303,10 +303,10 @@ $ ./sudoku2 sudoku17.1000.txt +RTS -N2 -s
       48,845,008 bytes copied during GC
        2,617,120 bytes maximum residency (7 sample(s))
          313,496 bytes maximum slop
-               9 MB total memory in use (0 MB lost due to fragmentation)
+               9 MB total memory in use
 
-  Generation 0:  2975 collections,  2974 parallel,  1.04s,  0.15s elapsed
-  Generation 1:     7 collections,     7 parallel,  0.05s,  0.02s elapsed
+  Gen 0: 2975 collections, 2974 parallel, 1.04s, 0.15s elapsed
+  Gen 1:    7 collections,    7 parallel, 0.05s, 0.02s elapsed
 
   Parallel GC work balance: 1.52 (6087267 / 3999565, ideal 2)
 
@@ -359,7 +359,7 @@ $ threadscope sudoku2.eventlog
 
 \begin{figure}
 \begin{center}
-\includegraphics[scale=0.4]{sudoku2.png}
+\includegraphics[scale=0.34]{sudoku2.png}
 \end{center}
 \caption{Sudoku2 ThreadScope profile}
 \label{fig:sudoku2-threadscope}
@@ -475,7 +475,7 @@ the latter requirement in more detail in \secref{parlist}.
 
 \begin{figure}
 \begin{center}
-\includegraphics[scale=0.4]{sudoku3.png}
+\includegraphics[scale=0.34]{sudoku3.png}
 \end{center}
 \caption{Sudoku3 ThreadScope profile}
 \label{fig:sudoku3-threadscope}
@@ -483,7 +483,7 @@ the latter requirement in more detail in \secref{parlist}.
 
 \begin{figure}
 \begin{center}
-\includegraphics[scale=0.4]{sudoku3-zoom.png}
+\includegraphics[scale=0.34]{sudoku3-zoom.png}
 \end{center}
 \caption{Sudoku3 (zoomed) ThreadScope profile}
 \label{fig:sudoku3-zoom-threadscope}
@@ -526,7 +526,7 @@ parallel parts, as we can see in ThreadScope
 
 \begin{figure}
 \begin{center}
-\includegraphics[scale=0.4]{sudoku4.png}
+\includegraphics[scale=0.34]{sudoku4.png}
 \end{center}
 \caption{Sudoku4 ThreadScope profile}
 \label{fig:sudoku4-threadscope}
@@ -818,7 +818,7 @@ instead of our own hand-written @parMap@, we could have used
 
 \begin{figure}
 \begin{center}
-\includegraphics[scale=0.6]{kmeans-example.png}
+\includegraphics[scale=0.5]{kmeans-example.png}
 \end{center}
 \caption{The K-Means problem}
 \label{fig:kmeans-example}
@@ -1093,7 +1093,7 @@ include:
 To learn more, we recommend the following resources:
 
 \begin{itemize}
-\item The documentation for the @Control.Parallel.Strategies@ module\footnote{\url{http://hackage.haskell.org/packages/archive/parallel/3.1.0.1/doc/html/Control-Parallel-Strategies.html}}.
+\item The documentation for the {\small @Control.Parallel.Strategies@} module\footnote{\url{http://hackage.haskell.org/packages/archive/parallel/3.1.0.1/doc/html/Control-Parallel-Strategies.html}}.
 \item \citet{seq-no-more}, which explains the motivation behind the
   design and implementation of @Eval@ and Strategies.
 \item \citet{pjsingh-tutorial}, an earlier tutorial covering
