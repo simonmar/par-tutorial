@@ -359,7 +359,7 @@ $ threadscope sudoku2.eventlog
 
 \begin{figure}
 \begin{center}
-\includegraphics[scale=0.34]{sudoku2.png}
+\includegraphics[scale=0.33]{sudoku2.png}
 \end{center}
 \caption{Sudoku2 ThreadScope profile}
 \label{fig:sudoku2-threadscope}
@@ -475,7 +475,7 @@ the latter requirement in more detail in \secref{parlist}.
 
 \begin{figure}
 \begin{center}
-\includegraphics[scale=0.34]{sudoku3.png}
+\includegraphics[scale=0.33]{sudoku3.png}
 \end{center}
 \caption{Sudoku3 ThreadScope profile}
 \label{fig:sudoku3-threadscope}
@@ -483,7 +483,7 @@ the latter requirement in more detail in \secref{parlist}.
 
 \begin{figure}
 \begin{center}
-\includegraphics[scale=0.34]{sudoku3-zoom.png}
+\includegraphics[scale=0.33]{sudoku3-zoom.png}
 \end{center}
 \caption{Sudoku3 (zoomed) ThreadScope profile}
 \label{fig:sudoku3-zoom-threadscope}
@@ -526,7 +526,7 @@ parallel parts, as we can see in ThreadScope
 
 \begin{figure}
 \begin{center}
-\includegraphics[scale=0.34]{sudoku4.png}
+\includegraphics[scale=0.33]{sudoku4.png}
 \end{center}
 \caption{Sudoku4 ThreadScope profile}
 \label{fig:sudoku4-threadscope}
@@ -579,7 +579,7 @@ returned by a @Strategy@ is observably equivalent to the value it was
 passed.  Unfortunately the library cannot statically guarantee this
 property for user-defined @Strategy@ functions, but it holds for the
 @Strategy@ functions and combinators provided by the
-@Control.Parallel.Strategies@ module.
+module @Control.Parallel.Strategies@.
 
 We have already seen some simple Strategies, @rpar@ and @rseq@,
 although we can now give their types in terms of @Strategy@:
@@ -856,7 +856,7 @@ A complete Haskell implementation can be found in the directory
 the algorithm.
 
 \begin{figure}
-\begin{numhaskell}
+\begin{numhaskellsmall}
 data Vector = Vector Double Double
 
 addVector :: Vector -> Vector -> Vector
@@ -905,8 +905,7 @@ makeNewClusters arr =
 step :: Int -> [Cluster] -> [Vector] -> [Cluster]
 step nclusters clusters points =
    makeNewClusters (assign nclusters clusters points)
-\end{numhaskell}
-
+\end{numhaskellsmall}
 \caption{Haskell code for K-Means}
 \label{fig:kmeans-code}
 \end{figure}
@@ -1055,7 +1054,7 @@ processors.
 \figref{kmeans-results} shows the speedups obtained by this
 implementation for a randomly-generated data set consisting of 4
 clusters with a total of approximately 170000 points in 2-D space.
-The data was generated using the Haskell @normaldistribution@ package
+The Haskell @normaldistribution@ package was used to generate the data,
 in order to generate realistically clustered points\footnote{The
   program used to generate the data is provided as
   @kmeans/GenSamples.hs@ in the sample code distribution, and the

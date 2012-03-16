@@ -113,7 +113,7 @@ putMVar      :: MVar a -> a -> IO ()
 \end{haskell}
 
 \noindent An @MVar@ can be thought of as a box that is either empty
-or full. The @newEmptyMVar@ operation creates a new empty box, and @newMVar@ creates
+or full. The operation @newEmptyMVar@ creates a new empty box, and @newMVar@ creates
 a new full box containing the value passed as its argument.  The @putMVar@
 operation puts a value into the box, but blocks (waits) if the box is
 already full.  Symmetrically, the @takeMVar@ operation removes the value
@@ -123,7 +123,7 @@ from a full box but blocks if the box is empty.
 
 \begin{itemize}
 \item @MVar ()@ is a \emph{lock}; @takeMVar@ acquires the lock and
-  @putMVar@ releases it again.\footnote{It works perfectly well the
+  @putMVar@ releases it.\footnote{It works perfectly well the
     other way around too, just be sure to be consistent about the policy.}  An @MVar@ used in this way can protect
   shared mutable state or critical sections.
 
@@ -266,7 +266,7 @@ downloaded: http://www.yahoo.com (153065 bytes, 1.11s)
 }
 
 \begin{figure}
-\includegraphics[scale=0.8]{channel.pdf}
+\includegraphics[scale=0.7]{channel.pdf}
 \label{fig:channels}
 \caption{Structure of the buffered channel implementation}
 \end{figure}
@@ -1445,7 +1445,7 @@ We now describe three distinct benefits of the STM implementation
 compared to using @MVar@s.
 
 \paragraph{More operations are possible.} In \secref{channels} we
-mentioned the operation @unGetChan@, which could not be implemented
+mentioned the @unGetChan@ operation, which could not be implemented
 with the desired semantics using @MVar@s.  Here is its implementation
 with STM:
 
@@ -1459,8 +1459,10 @@ unGetTChan (TChan read _write) a = do
 
 \noindent The obvious implementation does the right thing here.  Other
 operations that were not possible with @MVar@s are straightforward
-with STM, for example @isEmptyTChan@, the @MVar@ version of which
-suffers from the same problem as @unGetChan@:
+with STM. For example, it was not possible to define an operation for
+testing whether a @Chan@ is empty without suffering from the same
+problem as with @unGetChan@, but we can define this operation
+straightforwardly on @TChan@:
 
 \begin{haskell}
 isEmptyTChan :: TChan a -> STM Bool
@@ -1632,7 +1634,7 @@ interference.
 
 The general rule of thumb when using STM is never to read an unbounded
 number of @TVar@s in a single transaction, because the $O(n)$
-performance of @readTVar@ then gives $O(n^2)$ for the whole
+cost of @readTVar@ then gives $O(n^2)$ for the whole
 transaction.  Furthermore, long transactions are much more likely to
 fail to commit, because another transaction will probably have
 modified one or more of the same @TVar@s in the meantime, so there is
@@ -2012,7 +2014,7 @@ implementing any required changes on top of the provided sample code:
 
 \begin{itemize}
 \item What should happen if the user interrupts the server with
-  control-C? (control-C is implemented as an asynchronous exception
+  a control-C? (control-C is implemented as an asynchronous exception
   @Interrupted@ which is sent to the main thread).
 \item What happens in @talk@ if the line does not parse as a number?
 \item What happens if the client cuts the connection prematurely, or
