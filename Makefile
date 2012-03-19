@@ -8,7 +8,7 @@ TARBALL = par-tutorial-$(VERSION).tar.gz
 ZIPBALL = par-tutorial-$(VERSION).zip
 
 $(TARBALL):
-	git archive --format zip master . | gzip >$@
+	git archive --format tar master . | gzip >$@
 
 $(ZIPBALL):
 	git archive --format zip master . -o $@
