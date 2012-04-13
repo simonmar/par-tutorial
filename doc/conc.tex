@@ -75,6 +75,8 @@ is protected by a lock implemented as an @MVar@ (described in the next
 section).  We shall see shortly how the implementation of @MVar@s
 causes the @ABABABA@ behaviour.
 
+% ToDo: move this into a separate section and expand.
+
 We emphasised earlier that concurrency is a program structuring
 technique, or an abstraction.  Abstractions are practical when they
 are efficient, and this is where GHC's implementation of threads comes
@@ -151,7 +153,7 @@ to download before continuing.  We are given the following function to
 download a web page:
 
 \begin{haskell}
-getURL :: String -> IO String
+getURL :: String -> IO ByteString
 \end{haskell}
 
 \noindent Let's use this to download two URLs concurrently:
@@ -1876,26 +1878,30 @@ make this into a multi-client server using concurrency.  The @main@
 function for our server is as follows:
 
 \begin{numhaskell}
-main = do
-  s <- listenOn (PortNumber 44444)
+main = withSocketsDo $ do
+  sock <- listenOn (PortNumber (fromIntegral port))
+  printf "Listening on port %d\n" port
   forever $ do
-    (h,host,_) <- accept s
-    printf "new client: %s\n" host
-    forkIO (talk h `finally` hClose h)
+     (handle, host, port) <- accept sock
+     printf "Accepted connection from %s: %s\n" host (show port)
+     forkIO (talk handle `finally` hClose handle)
+
+port :: Int
+port = 44444
 \end{numhaskell}
 
 \noindent On line 2 we create a network socket to listen on port
 44444, and then we enter a loop to accept connections from clients
-(line 3).  Line 4 accepts a new client connection: @accept@ blocks
+(line 3).  Line 5 accepts a new client connection: @accept@ blocks
 until a connection request from a client arrives, and then returns a
-@Handle@ for communicating with the client (here bound to @h@) and
+@Handle@ for communicating with the client (here bound to @handle@) and
 some information about the client (here we bind @host@ to the client's
-hostname).  Line 5 reports the new connection, and on line 6 we call
+hostname).  Line 6 reports the new connection, and on line 7 we call
 @forkIO@ to create a new thread to handle the request.  A little
 explanation is needed for the expression passed to @forkIO@:
 
 \begin{haskell}
-   talk h `finally` hClose h
+   talk handle `finally` hClose handle
 \end{haskell}
 
 \noindent @talk@ is the single-client interaction that we defined
@@ -2021,6 +2027,214 @@ implementing any required changes on top of the provided sample code:
   simultaneously?
 \item Can we log the activity of the server to a file?
 \end{itemize}
+
+\Subsubsection{chat}{A chat server}
+
+Following on from the simple server example in the previous section,
+we now consider a more realistic example: a network chat server.  A
+chat server enables multiple clients to connect and type messages to
+each other interactively.  Real chat servers (e.g. IRC) have multiple
+channels and allow clients to choose which channels to participate in;
+for simplicity we will be building a chat server that has a single
+channel, whereby every message is seen by every client.
+
+The basic functionality we will be implementing is as follows:
+
+\begin{itemize}
+\item When a client connects, the server requests the name that the
+  client will be using.  The client must choose a name that is not
+  currently in use, or the server will request another name.
+
+\item Each line received from the client is interpreted as a command,
+  which is one of
+  \begin{itemize}
+    \item [@/tell @\textit{name} \textit{message}] Sends
+      \textit{message} to the user \textit{name}.
+    \item [@/kick @\textit{name}] Disconnects user
+      \textit{name}\footnote{In real chat servers this command would
+        typically only be available to previleged users, but for
+        simplicity here we will allow any user to kick any other user.}.
+    \item [@/quit@] Disconnects the current client.
+    \item [\textit{message..}] Any other string is broadcast as a
+      message to all the connected clients.
+  \end{itemize}
+
+\item Whenever a client connects or disconnects, all other connected
+  clients are notified.
+
+\item We will be handling errors correctly, and aiming for consistent
+  behaviour.  For exmple, when two clients connect at the same time,
+  one of them is always deemed to have connected first and gets
+  notified about the other client connecting.
+
+\item If two clients simultaneously try to kick each other, only one
+  of them will succeed.  This may seem obvious, but as we shall see it
+  is easy to get this wrong.
+
+\end{itemize}
+
+
+As before, the basic architecture is to have a single server thread
+that accepts connections and forks a new thread for each client
+connection.  However, what makes this example somewhat more
+interesting than the simple server of the previous section, is that a
+client thread must listen for events from multiple sources:
+
+\begin{itemize}
+\item It receives commands over the network,
+\item it receives broadcast messages from other connected clients,
+  which must be sent back over the network,
+\item it can be kicked at any time by another client.
+\end{itemize}
+
+Now, we cannot structure the client as a single thread, because there
+is no way for a thread to listen for both network traffic and local
+communication (be it an @MVar@ or @STM@) at the same time.  So we need
+two threads for each client, one that listens for network traffic, and
+one that listens for events from other clients.
+
+Another constraint is that we should avoid sending data to the network
+socket from multiple threads, because it might get arbitrarily
+interleaved.  We could add some locking to gain atomicity, but it
+seems simpler to have just one thread writing to the socket per
+client.
+
+So to summarise, we need
+
+\begin{itemize}
+\item One thread, the \emph{receive} thread, that reads commands from
+  the network socket,
+\item another thread that listens for messages from other clients and
+  kick requests.  We shall designate this thread the thread that sends
+  information back to the client over the network, and hence call it
+  the \emph{send} thread.
+\end{itemize}
+
+To keep things simple, we will move as much logic as possible into the
+send thread, leaving the receive thread to just repeatedly read lines
+of text from the socket and forward them to the send thread.  This
+raises the question of how the send thread should listen for the
+various events it needs to act upon: lines of text from the user,
+messages from other clients, and kick requests.
+
+We might consider having the send thread read from a single @Chan@,
+and send requests both from the receive thread and other clients down
+this channel.  However, this would make it difficult to implement our
+consistency requirement for the @/kick@ command: if a @/kick@ command
+resulted in a message being queued on a @Chan@, then it would be
+entirely possible for two threads to simultaneously kick each other,
+because the first @/kick@ command would be in the @Chan@ of the second
+client, meanwhile the second client could enqueue a @/kick@ message on
+the @Chan@ of the first client.
+
+Therefore @/kick@ should be given a high priority: a client should
+only process another message if there is no @/kick@ pending for it.
+The easiest way to service multiple sources of events like this is
+with an STM transaction: we simply store a @/kick@ request in one
+@TVar@ and the rest of the messages in a separate @TChan@, and the
+send thread can check both on each iteration.
+
+Indeed, if we use STM there is no need to use a single @TChan@; we
+could have one @TChan@ for the receive thread to communicate with the
+send thread, and another @TChan@ for the other clients to send
+messages on.  However, sending these events down the same channel
+retains more ordering, which might make things more predictable for
+the user, hence we stick to the design of a @TVar@ for kick requests
+and a single @TChan@ for other messages.
+
+Now that we have established the main architectural design, we can
+fill in the details\footnote{the full code can be found in sample @chat/Main.hs@}.  First, the data structure describing a client:
+
+\begin{haskell}
+type ClientName = String
+
+data Client = Client
+  { clientName     :: ClientName
+  , clientHandle   :: Handle
+  , clientKicked   :: TVar (Maybe String)
+  , clientSendChan :: TChan Message
+  }
+\end{haskell}
+
+\noindent We have one @TVar@ indicating whether this client has been
+kicked (@clientKicked@).  If this @TVar@ contains @Just s@, then @s@
+is a string describing the reason for the client being kicked.  The
+@TChan@ @clientSendChan@ carries all the other messages that may be
+sent to a client.  The objects that it contains are of the type
+@Message@:
+
+\begin{haskell}
+data Message = Notice String
+             | Tell ClientName String
+             | Broadcast ClientName String
+             | Command String
+\end{haskell}
+
+\noindent where, respectively: @Notice@ is a message from the server,
+@Tell@ is a private message from another client, @Broadcast@ is a
+public message from another client, and @Command@ is a line of text
+received from the user (via the receive thread).
+
+Next, we define a useful function for sending a @Message@ to a given
+@Client@:
+
+\begin{haskell}
+sendMessage :: Client -> Message -> STM ()
+sendMessage Client{..} msg =
+    writeTChan clientSendChan msg
+\end{haskell}
+
+\noindent Note that this function is in the @STM@ monad, not @IO@.  We
+will be using it inside some STM transactions later.
+
+The data structure that stores the server state is just a @TVar@
+containing a mapping from client names to @Client@s:
+
+\begin{haskell}
+data Server = Server
+  { clients :: TVar (Map ClientName Client)
+  }
+
+newServer :: IO Server
+newServer = do
+  c <- newTVarIO Map.empty
+  return Server { clients = c }
+\end{haskell}
+
+This state must be accessible from all the clients, because each
+client needs to be able to broadcast a message to all the others.
+Here is how we broadcast a @Message@ to all the clients:
+
+\begin{haskell}
+broadcast :: Server -> Message -> STM ()
+broadcast Server{..} msg =
+    readTVar clients >>= F.mapM_ (\client -> sendMessage client msg)
+\end{haskell}
+
+Now, we will work top-down and write the code of the server.  The
+@main@ function is almost identical to the one used for the simple
+server in \secref{conc-io}:
+
+\begin{haskell}
+main :: IO ()
+main = withSocketsDo $ do
+  server <- newServer
+  sock <- listenOn (PortNumber (fromIntegral port))
+  printf "Listening on port %d\n" port
+  forever $ do
+      (handle, host, port) <- accept sock
+      printf "Accepted connection from %s: %s\n" host (show port)
+      forkIO (talk server handle `finally` hClose handle)
+
+port :: Int
+port = 44444
+\end{haskell}
+
+\noindent the only difference being that we create a new empty server
+state up front by calling @newServer@, and pass this to each new
+client as an argument to @talk@.
+
+
 
 % ToDo, someday:
 % \Subsection{conc-data}{Shared concurrent data structures}
