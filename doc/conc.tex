@@ -872,10 +872,10 @@ We saw a use of the @bracket@ function earlier; in fact, @bracket@ is
 defined with @mask@ in order to make it asynchronous-exception-safe:
 
 \begin{numhaskell}
-bracket before after during =
+bracket before after thing =
   mask $ \restore -> do
     a <- before
-    r <- restore (during a) `catch` \e -> after a; throw e
+    r <- restore (thing a) `onException` after a
     _ <- after a
     return r
 \end{numhaskell}
@@ -2038,7 +2038,7 @@ channels and allow clients to choose which channels to participate in;
 for simplicity we will be building a chat server that has a single
 channel, whereby every message is seen by every client.
 
-The basic functionality we will be implementing is as follows:
+The informal specification for the server is as follows:
 
 \begin{itemize}
 \item When a client connects, the server requests the name that the
@@ -2052,11 +2052,11 @@ The basic functionality we will be implementing is as follows:
       \textit{message} to the user \textit{name}.
     \item [@/kick @\textit{name}] Disconnects user
       \textit{name}\footnote{In real chat servers this command would
-        typically only be available to previleged users, but for
+        typically only be available to privileged users, but for
         simplicity here we will allow any user to kick any other user.}.
     \item [@/quit@] Disconnects the current client.
-    \item [\textit{message..}] Any other string is broadcast as a
-      message to all the connected clients.
+    \item [\textit{message..}] Any other string (not beginning with
+      @/@) is broadcast as a message to all the connected clients.
   \end{itemize}
 
 \item Whenever a client connects or disconnects, all other connected
@@ -2073,8 +2073,7 @@ The basic functionality we will be implementing is as follows:
 
 \end{itemize}
 
-
-As before, the basic architecture is to have a single server thread
+\paragraph{Architecture.}  As before, the basic architecture is to have a single server thread
 that accepts connections and forks a new thread for each client
 connection.  However, what makes this example somewhat more
 interesting than the simple server of the previous section, is that a
@@ -2082,22 +2081,21 @@ client thread must listen for events from multiple sources:
 
 \begin{itemize}
 \item It receives commands over the network,
-\item it receives broadcast messages from other connected clients,
+\item it receives messages from other connected clients,
   which must be sent back over the network,
 \item it can be kicked at any time by another client.
 \end{itemize}
 
-Now, we cannot structure the client as a single thread, because there
-is no way for a thread to listen for both network traffic and local
-communication (be it an @MVar@ or @STM@) at the same time.  So we need
-two threads for each client, one that listens for network traffic, and
-one that listens for events from other clients.
+Now, we cannot structure the client as a single thread, because
+Concurrent Haskell does not provide a way to listen for both network
+traffic and local communication (be it an @MVar@ or @STM@) at the same
+time.  So we need two threads for each client, one that listens for
+network traffic, and one that listens for events from other clients.
 
 Another constraint is that we should avoid sending data to the network
-socket from multiple threads, because it might get arbitrarily
-interleaved.  We could add some locking to gain atomicity, but it
-seems simpler to have just one thread writing to the socket per
-client.
+socket from multiple threads, because they might get arbitrarily
+interleaved.  We could add some locking to gain atomicity, but it is
+simpler to have just one thread writing to the socket per client.
 
 So to summarise, we need
 
@@ -2137,13 +2135,14 @@ send thread can check both on each iteration.
 Indeed, if we use STM there is no need to use a single @TChan@; we
 could have one @TChan@ for the receive thread to communicate with the
 send thread, and another @TChan@ for the other clients to send
-messages on.  However, sending these events down the same channel
-retains more ordering, which might make things more predictable for
-the user, hence we stick to the design of a @TVar@ for kick requests
-and a single @TChan@ for other messages.
+messages on.  However, using a single channel allows us to retain the
+ordering of all messages, which might make things more predictable for
+the user, hence we stick to the design of a single @TChan@ for
+messages and a @TVar@ for kick requests.
 
-Now that we have established the main architectural design, we can
-fill in the details\footnote{the full code can be found in sample @chat/Main.hs@}.  First, the data structure describing a client:
+\paragraph{Client data.} Now that we have established the main architectural design, we can
+fill in the details\footnote{the full code can be found in sample
+  @chat/Main.hs@}.  First, the data structure describing a client:
 
 \begin{haskell}
 type ClientName = String
@@ -2187,7 +2186,7 @@ sendMessage Client{..} msg =
 \noindent Note that this function is in the @STM@ monad, not @IO@.  We
 will be using it inside some STM transactions later.
 
-The data structure that stores the server state is just a @TVar@
+\paragraph{Server data.} The data structure that stores the server state is just a @TVar@
 containing a mapping from client names to @Client@s:
 
 \begin{haskell}
@@ -2202,13 +2201,14 @@ newServer = do
 \end{haskell}
 
 This state must be accessible from all the clients, because each
-client needs to be able to broadcast a message to all the others.
-Here is how we broadcast a @Message@ to all the clients:
+client needs to be able to broadcast to all the others.  Here is how
+we broadcast a @Message@ to all the clients:
 
 \begin{haskell}
 broadcast :: Server -> Message -> STM ()
-broadcast Server{..} msg =
-    readTVar clients >>= F.mapM_ (\client -> sendMessage client msg)
+broadcast Server{..} msg = do
+    clientmap <- readTVar clients
+    F.mapM_ (\client -> sendMessage client msg) clientmap
 \end{haskell}
 
 Now, we will work top-down and write the code of the server.  The
@@ -2234,7 +2234,277 @@ port = 44444
 state up front by calling @newServer@, and pass this to each new
 client as an argument to @talk@.
 
+\paragraph{Setting up a new client.} When a new client connects, we
+need to do the following tasks:
 
+\begin{itemize}
+\item Ask the client for a user name,
+\item if the user name already exists, then ask for another name,
+\item otherwise, create a new @Client@ and insert it into the @Server@
+  state, ensuring that the @Client@ will be removed when it
+  disconnects or any failure occurs.
+\item Notify all existing clients that the new client has connected,
+\item set up the threads to handle the client connection and start
+  processing messages.
+\end{itemize}
+
+Note the main source of trickiness here: we need to add the new client
+to the @Server@ if and only if the user supplies us with a user name
+that is not already connected, and at the same time we must arrange to
+remove the new client after disconnection or failure, without there
+being any possibility that a stale @Client@ is left lying around,
+which would lead to a memory leak.
+
+Let's start by definiing @checkAddClient@, which takes a user name and
+attempts to add a new client with that name to the state, returning
+@Nothing@ if a client with that name already exists, or @Just client@
+if the addition was succesful.  It also broadcasts the event to all
+the other connected clients:
+
+\begin{haskell}
+checkAddClient :: Server -> ClientName -> Handle -> IO (Maybe Client)
+checkAddClient server@Server{..} name handle = atomically $ do
+    clientmap <- readTVar clients
+    if Map.member name clientmap
+       then return Nothing
+       else do client <- newClient name handle
+               modifyTVar' clients $ Map.insert name client
+               broadcast server $ Notice $ name ++ " has connected"
+               return (Just client)
+\end{haskell}
+
+\noindent and we will need a corresponding @removeClient@ that removes
+the client again:
+
+\begin{haskell}
+removeClient :: Server -> ClientName -> IO ()
+removeClient server@Server{..} name = atomically $ do
+    modifyTVar' clients $ Map.delete name
+    broadcast server $ Notice $ name ++ " has disconnected"
+\end{haskell}
+
+Now we can put the pieces together.  Unfortunately we can't reach for
+the usual tool for these situations, namely @bracket@, because our
+``resource acquisition'' (@checkAddClient@) is conditional.  So we
+need to write the code out explicitly:
+
+\begin{haskell}
+talk :: Server -> Handle -> IO ()
+talk server@Server{..} handle = do
+    hSetNewlineMode handle universalNewlineMode
+        -- Swallow carriage returns sent by telnet clients
+    hSetBuffering handle LineBuffering
+    readName
+  where
+    readName = do
+      hPutStrLn handle "What is your name?"
+      name <- hGetLine handle
+      if null name
+         then readName
+         else do
+                ok <- checkAddClient server name handle
+                case ok of
+                  Nothing -> do
+                     printf "The name %s is in use, please choose another" name
+                     readName
+                  Just client ->
+                     runClient server client
+                       `finally` removeClient server name
+\end{haskell}
+
+This is \emph{almost} right, but strictly speaking we should mask
+asynchronous exceptions to eliminate any possibilty that an exception
+is received just after @checkAddClient@ but before @runClient@, which
+would leave a stale client in the state.  This is what @bracket@ would
+have done for us, but since we're rolling our own logic here, we have
+to do the exception safety too (for reference the definition of
+@bracket@ is given in \secref{async-safety}).
+
+The fixed version of @readName@ is as follows:
+
+\begin{haskell}
+    readName :: Server -> Handle -> IO ()
+    readName server handle = do
+      hPutStrLn handle "What is your name?"
+      name <- hGetLine handle
+      if null name
+         then readName
+         else mask $ \restore -> do
+                ok <- checkAddClient server name handle
+                case ok of
+                  Nothing -> restore $ do
+                     printf "The name %s is in use, please choose another" name
+                     readName
+                  Just client ->
+                     restore (runClient server client)
+                       `finally` removeClient server name
+\end{haskell}
+
+\paragraph{Running the client.} Having initialised the client, created
+the @Cient@ data structure and added it to the @Server@ state, we now
+need to create the client threads themselves and start processing
+events.  The main functionality of the client will be implemented in a
+function @runClient@:
+
+\begin{haskell}
+runClient :: Server -> Client -> IO ()
+\end{haskell}
+
+\noindent where @runClient@ only returns or throws an exception when
+the client is to be disconnected.  Recall that we need two threads per
+client: a \emph{receive} thread to read from the network socket, and a
+\emph{send} thread to listen for messages from other clients and to
+send messages back over the network.  Having two separate threads adds
+some complication: what if one of the threads exits or dies with an
+exception?  It will be easier if we first build a robust abstraction
+that deals with such issues.  We shall call the combinator
+@concurrently@:
+
+\begin{haskell}
+concurrently :: IO () -> IO () -> IO ()
+\end{haskell}
+
+\noindent @concurrently@ takes two @IO@ actions as arguments, and as
+the name suggests, runs them in separate threads.  If either action
+exits, either normally or by throwing an exception, then the other
+action is terminated with @killThread@ and the call to @concurrently@
+returns.
+
+The basic idea is straightforward: create an @MVar@, fork a thread to
+run each action and @finally@ put the @MVar@, then in the original
+thread we take the @MVar@ and @finally@ kill both threads (killing the
+thread that has already exited is harmless).  Unfortunately the
+combinator we would like to use (@bracket@) isn't quite enough again,
+because we need to be able to call @restore@ in our forked threads,
+and @bracket@ doesn't make available the @restore@ function that it
+obtains from @mask@.  Nevertheless, we can define @concurrently@ by
+instantiating the definition of @bracket@, which was given in
+\secref{async-safety}:
+
+\begin{haskell}
+concurrently left right = do
+    done <- newEmptyMVar
+    mask $ \restore -> do
+        let
+            spawn x = forkIO $ restore x `finally` tryPutMVar done ()
+            stop threads = mapM_ killThread threads
+        --
+        tids <- mapM spawn [left,right]
+        restore (takeMVar done) `onException` stop tids
+        stop tids
+\end{haskell}
+
+@concurrently@ is one more tool in your bag; the more of these tools
+we have, the less likely it is that you have to worry about calling
+@mask@ directly from your application code.
+
+Now that we have @concurrently@, we can write the code for
+@runClient@:
+
+\begin{haskell}
+runClient :: Server -> Client -> IO ()
+runClient server@Server{..} client@Client{..}
+ = concurrently send receive
+ where
+    send = join $ atomically $ do
+        k <- readTVar clientKicked
+        case k of
+            Just reason -> return $
+                hPutStrLn clientHandle $ "You have been kicked: " ++ reason
+            Nothing -> do
+                msg <- readTChan clientSendChan
+                return $ do
+                    continue <- handleMessage server client msg
+                    when continue $ send
+
+    receive = do
+       msg <- hGetLine clientHandle
+       atomically $ sendMessage client $ Command msg
+       receive
+\end{haskell}
+
+So @runClient@ is just @concurrently@ applied to the @send@ and
+@receive@ threads.  In the @receive@ thread we read one line at a time
+from the client's @Handle@ and forward it to the send thread as a
+@Command@ message.
+
+In the @send@ thread, we have a transaction that tests two pieces of
+state: first, the @clientKicked@ @TVar@, to see whether this client
+has been kicked, and if not, we take the next message from
+@clientSendChan@ and act upon it.  Note that @send@ is expressed as
+@join@ applied to the STM transaction: the @join@ function is from
+@Control.Monad@ and has type
+
+\begin{haskell}
+join :: Monad m => m (m a) -> m a
+\end{haskell}
+
+\noindent where here @m@ is instantiated to @IO@.  The STM transaction
+returns an @IO@ action, which is run by @join@, and in most cases this
+@IO@ action returned will recursively invoke @send@.
+
+Acting on a message is handled by the @handleMessage@ function, which
+is entirely straightforward:
+
+\begin{haskell}
+handleMessage :: Server -> Client -> Message -> IO Bool
+handleMessage server client@Client{..} message =
+  case message of
+     Notice msg         -> output $ "*** " ++ msg
+     Tell name msg      -> output $ "*" ++ name ++ "*: " ++ msg
+     Broadcast name msg -> output $ "<" ++ name ++ ">: " ++ msg
+     Command msg ->
+       case words msg of
+           ["/kick", who] -> do
+               join $ atomically $ kick server client who
+               return True
+           "/tell" : who : what -> do
+               atomically $ tell server clientName who (unwords what)
+               return True
+           ["/quit"] ->
+               return False
+           ('/':_):_ -> do
+               hPutStrLn clientHandle $ "Unrecognised command: " ++ msg
+               return True
+           _ -> do
+               atomically $ broadcast server $ Broadcast clientName msg
+               return True
+ where
+   output s = do hPutStrLn clientHandle s; return True
+\end{haskell}
+
+Note that the function returns a @Bool@ to indicate whether the caller
+should continue to handle more messages (@True@) or exit (@False@).
+
+\paragraph{Recap.}  We have now given all the code for the chat server: less than 250
+lines total, which is not at all bad considering that we have
+implemented a complete and usable chat client.  Moreover, with no
+changes the client will scale to many thousands of connections, and
+will make use of multiple CPUs if they are available.
+
+We needed one new tool: @concurrently@, which should be generally
+useful (indeed it is one of a family of similar abstractions).
+
+We used STM to gain some useful consistency properties.  It would be
+possible to redesign the server without STM, but it would no doubt be
+more difficult: an ordinary @Chan@ would not be enough, we would have
+to build another abstraction, and as we have seen, building new
+abstractions with @MVar@ can be a tricky business.  STM is a great
+tool for ensuring complex consistency properties in concurrent
+applications, and our experience so far has been that beyond a certain
+level of complexity, STM becomes a necessity.
+
+Care should be taken with STM with respect to performance, though:
+take a look for a minute at the definition of @broadcast@ above.  It
+is an STM transaction that operates on an unbounded number of
+@TChan@s, and thus builds an unbounded transaction.  We noted earlier
+(\secref{stm-cost}) that long transactions should be avoided because
+they cost $O(n^2)$, so @broadcast@ should be reimplemented to avoid
+this.  One alternative would be to create a single broadcast channel
+and use @dupTChan@ so that it can be read by all clients separately.
+
+
+% ToDo: define the rest of these abstractions somewhere.
 
 % ToDo, someday:
 % \Subsection{conc-data}{Shared concurrent data structures}
