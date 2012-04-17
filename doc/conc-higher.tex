@@ -1,0 +1,38 @@
+\Subsection{conc-higher}{Higher-level concurrency abstractions}
+
+The preceding sections covered the basic interfaces for writing
+concurrent code in Haskell.  These are enough for simple tasks, but
+for larger and more complex tasks we need to raise the level of
+abstraction.
+
+Earlier in \secref{mvars} we introduced the @Async@ interface for
+performing operations asynchronously and waiting for the results.  In
+this section we will be revisiting that interface and expanding it
+with some more sophisticated functionality.  In particular, we will
+
+\begin{itemize}
+\item provide a way to create an @Async@ that is automatically
+  cancelled if its parent dies,
+\item provide a way to wait for an @Async@ that propagates exceptions
+  from the @Async@ to the parent,
+\item and we will provide various ways to wait for multiple @Async@s simultaneously.
+\end{itemize}
+
+What we are aiming for is the ability to build \emph{trees of
+  threads}, such that when a process dies for whatever reason, two
+things happen: any children it has are automatically terminated, and
+its parent is informed.  This is part of the ``let it crash''
+philosophy promoted by the designers of Erlang: the idea is that
+rather than trying to build elaborate error-recovery machinery, we
+should simply program the normal case and let every abnormal situation
+cause the thread (or process in the case of Erlang) to crash.  The
+crash is typically caught by a supervisor process that knows how to
+restart the system in a known good state.
+
+In order to implement the ``let it crash'' philosophy, we need to be
+able to spawn threads that will inform their parent when they exit.
+In Erlang this is done by \emph{linking} processes together, a
+mechanism that is provided natively by the Erlang runtime.  In
+Haskell, we can build equivalent functionality using the mechanisms
+introduced earlier: threads, asynchronous exceptions, and STM.
+

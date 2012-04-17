@@ -1,0 +1,754 @@
+\Subsection{stm}{Software Transactional Memory}
+
+Software Transactional Memory (STM) is a technique for simplifying
+concurrent programming by allowing multiple state-changing operations
+to be grouped together and performed as a single atomic operation.
+Strictly speaking, ``Software Transactional Memory'' is an
+implementation technique, whereas the language construct we are
+interested in is ``atomic blocks''.  Unfortunately the former term has
+stuck, and so the language-level facility is called STM.
+
+STM solves a number of problems that arise with conventional
+concurrency abstractions, that we describe here through a series of
+examples.  For reference throughout the following section, the types
+and operations of the STM interface are collected in
+\lstref{stm}.
+
+\begin{lstlisting}[float,label=lst:stm,caption=the interface
+    provided by \texttt{Control.Concurrent.STM},language=HaskellUlisses,style=numbers]
+data STM a -- abstract
+instance Monad STM -- amongst other things
+
+atomically :: STM a -> IO a
+
+data TVar a -- abstract
+newTVar   :: a -> STM (TVar a)
+readTVar  :: TVar a -> STM a
+writeTVar :: TVar a -> a -> STM ()
+
+retry     :: STM a
+orElse    :: STM a -> STM a -> STM a
+
+throwSTM  :: Exception e => e -> STM a
+catchSTM  :: Exception e => STM a -> (e -> STM a) -> STM a
+\end{lstlisting}
+
+
+Imagine the following scenario: a window manager that manages multiple
+desktops.  The user may move windows from one desktop to another,
+while at the same time, a program may request that its own window
+moves from its current desktop to another desktop.  The window manager
+uses multiple threads: one to listen for input from the user, one for
+each existing window to listen for requests from those programs, and
+one thread that renders the display to the user.
+
+How should the program represent the state of the display?  One option
+is to put it all in a single @MVar@:
+
+\begin{haskell}
+type Display = MVar (Map Desktop (Set Window))
+\end{haskell}
+
+\noindent and this would work, but the @MVar@ is a single point of
+contention.  For example, the rendering thread, which only needs to
+look at the currently displayed desktop, could be blocked by a window
+on another desktop moving itself.
+
+So perhaps we can try to allow more concurrency by having a separate
+@MVar@ for each desktop:
+
+\begin{haskell}
+type Display = Map Desktop (MVar (Set Window))
+\end{haskell}
+
+\noindent unfortunately this approach quickly runs into problems.
+Consider an operation to move a window from one desktop to another:
+
+\begin{haskell}
+moveWindow :: Display -> Window -> Desktop -> Desktop -> IO ()
+moveWindow disp win a b = do
+  wa <- takeMVar ma
+  wb <- takeMVar mb
+  putMVar ma (Set.delete win wa)
+  putMVar mb (Set.insert win wb)
+ where
+  ma = fromJust (Map.lookup disp a)
+  mb = fromJust (Map.lookup disp b)
+\end{haskell}
+
+\noindent Note that we must take both @MVar@s before we can put the
+results: otherwise another thread could potentially observe the
+display in a state in which the window we are moving does not exist.
+But this raises a problem: what if there is concurrent call to
+@moveWindow@ trying to move a window in the opposite direction?  Both
+calls would succeed at the first @takeMVar@, but block on the second,
+and the result is a deadlock.  This is an instance of the classic
+Dining Philosophers problem. % \cite{}.
+
+One solution is to impose an ordering on the @MVar@s, and require that
+all agents take @MVar@s in the correct order and release them in
+the opposite order.  That is inconvenient and error-prone though, and
+furthermore we have to extend our ordering to any other state that we
+might need to access concurrently.  Large systems with many
+locks (e.g. Operating Systems) are often plagued by this problem, and
+managing the complexity requires building elaborate infrastructure to
+detect ordering violations.
+
+Transactional memory provides a way to avoid this deadlock problem
+without imposing a requirement for ordering on the programmer.  To
+solve the problem using STM, we replace @MVar@ with @TVar@:
+
+\begin{haskell}
+type Display = Map Desktop (TVar (Set Window))
+\end{haskell}
+
+\noindent @TVar@ stands for ``transactional variable'', and it is a
+mutable variable that can only be read or written within a
+transaction.  To implement @moveWindow@, we simply perform the
+necessary operations on @TVar@s in the STM monad, and wrap the whole
+sequence in @atomically@:
+
+\begin{haskell}
+moveWindow :: Display -> Window -> Desktop -> Desktop -> IO ()
+moveWindow disp win a b = atomically $ do
+  wa <- readTVar ma
+  wb <- readTVar mb
+  writeTVar ma (Set.delete win wa)
+  writeTVar mb (Set.insert win wb)
+ where
+  ma = fromJust (Map.lookup a disp)
+  mb = fromJust (Map.lookup b disp)
+\end{haskell}
+
+\noindent The code is almost identical to the @MVar@ version, but the
+behaviour is quite different: the sequence of operations inside
+@atomically@ happens indivisibly as far as the rest of the program is
+concerned.  No other thread can observe an intermediate state; the
+operation has either completed, or it has not started yet.  What's
+more, there is no requirement that we read both @TVar@s before we
+write them, this would be fine too:
+
+\begin{haskell}
+moveWindow :: Display -> Window -> Desktop -> Desktop -> IO ()
+moveWindow disp win a b = atomically $ do
+  wa <- readTVar ma
+  writeTVar ma (Set.delete win wa)
+  wb <- readTVar mb
+  writeTVar mb (Set.insert win wb)
+ where
+  ma = fromJust (Map.lookup disp a)
+  mb = fromJust (Map.lookup disp b)
+\end{haskell}
+
+\noindent So STM is far less error-prone here.  The approach also
+scales to any number of @TVar@s, so we could easily write an operation
+that moves the windows from all other desktops to the current desktop,
+for example.
+
+Now suppose that we want to swap two windows, moving window W from
+desktop A to B, and simultaneously V from B to A.  With the @MVar@
+representation we would have to write a special-purpose operation to
+do this, because it has to take the @MVar@s for A and B (in the right
+order), and then put both @MVar@s back with the new contents.  With
+STM, however, we can express this much more neatly as a composition.
+First we need to expose a version of @moveWindow@ without the
+@atomically@ wrapper:
+
+\begin{haskell}
+moveWindowSTM :: Display -> Window -> Desktop -> Desktop
+              -> STM ()
+moveWindowSTM disp win a b = do ...
+\end{haskell}
+
+\noindent and then we can define @swapWindows@ by composing two
+@moveWindowSTM@ calls:
+
+\begin{haskell}
+swapWindows :: Display
+            -> Window -> Desktop
+            -> Window -> Desktop
+            -> IO ()
+swapWindows disp w a v b = atomically $ do
+  moveWindowSTM disp w a b
+  moveWindowSTM disp v b a
+\end{haskell}
+
+\noindent This demonstrates the \emph{composability} of STM
+operations: any operation of type @STM a@ can be composed with others
+to form a larger atomic transaction.  For this reason, @STM@
+operations are usually provided without the @atomically@ wrapper, so
+that clients can compose them as necessary, before finally wrapping
+the entire operation in @atomically@.
+
+So far we have covered the basic facilities of STM, and shown that STM
+can be used to make atomicity scale in a composable way.  STM confers
+a qualitative improvement in expressibility and robustness when
+writing concurrent programs.  The benefits of STM in Haskell go
+further, however: in the following sections we show how STM can be
+used to make blocking abstractions compose, and how STM can be used to
+manage complexity in the presence of failure and interruption.
+
+\Subsubsection{stm-blockng}{Blocking}
+
+An important part of concurrent programming is dealing with
+\emph{blocking}; when we need to wait for some condition to be true,
+or to acquire a particular resource.  STM provides an ingenious way to
+do this, with a single operation:
+
+\begin{haskell}
+retry :: STM a
+\end{haskell}
+
+\noindent the meaning of @retry@ is simply ``run the current
+transaction again''.  That seems bizarre - why would we want to run
+the current transaction again?  Well, for one thing, the contents of
+some @TVar@s that we have read may have been changed by another
+thread, so re-running the transaction may yield different results.
+Indeed, there's no point re-running the transaction \emph{unless} it
+is possible that something different might happen, and the runtime
+system knows this, so @retry@ waits until a @TVar@ that was read in
+the current transaction has been written to, and then triggers a
+re-run of the current transaction.  Until that happens, the current
+thread is blocked.
+
+\ToDo{perhaps rearrange the text here, at least one reader was
+  confused because the discussion of ``not busy waiting'' occurs
+  before the concrete example.}
+
+As a concrete example, we can use @retry@ to implement the rendering
+thread in our window-manager example.  The behaviour we want is this:
+
+\begin{itemize}
+\item One desktop is designated as having the \emph{focus}.  The
+  focussed desktop is the one displayed by the rendering thread.
+\item The user may request that the focus be changed at any time.
+\item Windows may move around and appear or disappear of their own
+  accord, and the rendering thread must update its display
+  accordingly.
+\end{itemize}
+
+We are supplied with a function @render@ which handles the business of
+rendering windows on the display.  It should be called whenever the
+window layout changes\footnote{we are assuming that the actual window contents
+are rendered via some separate means, e.g. compositing}:
+
+\begin{haskell}
+render :: Set Window -> IO ()
+\end{haskell}
+
+The currently focussed desktop is a piece of state that is shared by
+the rendering thread and some other thread that handles user input.
+Therefore we represent that by a @TVar@:
+
+\begin{haskell}
+type UserFocus = TVar Desktop
+\end{haskell}
+
+Next, we define an auxiliary function @getWindows@ that takes the
+@Display@ and the @UserFocus@, and returns the set of windows to render,
+in the @STM@ monad.  The implementation is straightforward: read the
+current focus, and look up the contents of the appropriate desktop in
+the @Display@:
+
+\begin{haskell}
+getWindows :: Display -> UserFocus -> STM (Set Window)
+getWindows disp focus = do
+  desktop <- readTVar focus
+  readTVar (fromJust (Map.lookup desktop disp))
+\end{haskell}
+
+Finally, we can implement the rendering thread.  The general plan is
+to repeatedly read the current state with @getWindows@ and call
+@render@ to render it, but use @retry@ to avoid calling @render@ when
+nothing has changed.  Here is the code:
+
+\begin{numhaskell}
+renderThread :: Display -> UserFocus -> IO ()
+renderThread disp focus = do
+  wins <- atomically $ getWindows disp focus
+  loop wins
+ where
+  loop wins = do
+    render wins
+    next <- atomically $ do
+               wins' <- getWindows disp focus
+               if (wins == wins')
+                   then retry
+                   else return wins'
+    loop next
+\end{numhaskell}
+
+\noindent First we read the current set of windows to display (line 3)
+and use this as the initial value for the @loop@ (line 4).  Lines 6-13
+implement the loop.  Each iteration calls @render@ to display the
+current state (line 7), and then enters a transaction to read the next
+state.  Inside the transaction we read the current state (line 9), and
+compare it to the state we just rendered (line 10); if the states are
+the same, there is no need to do anything, so we call @retry@.  If the
+states are different, then we return the new state, and the loop
+iterates with the new state (line 13).
+
+The effect of the @retry@ is precisely what we need: it waits until
+the value read by @getWindows@ could possibly be different, because
+another thread has successfully completed a transaction that writes to
+one of the @TVar@s that is read by @getWindows@.  That encompasses
+both changes to the @focus@ (because the user switched to a different
+desktop), and changes to the contents of the current desktop (because
+a window moved, appeared, or disappeared).  Furthermore, changes to
+other desktops can take place without the rendering thread being woken
+up.
+
+If it weren't for STM's @retry@ operation, we would have to implement
+this complex logic ourselves, including implementing the signals
+between threads that modify the state and the rendering thread.  This
+is anti-modular, because operations that modify the state have to know
+about the observers that need to act on changes.  Furthermore, it
+gives rise to a common source of concurrency bugs: \emph{lost
+  wakeups}.  If we forgot to signal the rendering thread, then the
+display would not be updated.  In this case the effects are somewhat
+benign, but in a more complex scenario lost wakeups often lead to
+deadlocks, because the woken thread was supposed to complete some
+operation on which other threads are waiting.
+
+\Subsubsection{tmvar}{Implementing \texttt{MVar} with STM}
+
+\ToDo{Finish this section.}
+
+\begin{haskell}
+newtype TMVar a = TMVar (TVar (Maybe a))
+
+newTMVar :: a -> STM (TMVar a)
+newTMVar a = do
+  t <- newTVar (Just a)
+  return (TMVar t)
+
+newEmptyTMVar :: STM (TMVar a)
+newEmptyTMVar = do
+  t <- newTVar Nothing
+  return (TMVar t)
+
+takeTMVar :: TMVar a -> STM a
+takeTMVar (TMVar t) = do
+  m <- readTVar t
+  case m of
+    Nothing -> retry
+    Just a  -> do writeTVar t Nothing; return a
+
+putTMVar :: TMVar a -> a -> STM ()
+putTMVar (TMVar t) a = do
+  m <- readTVar t
+  case m of
+    Nothing -> do writeTVar t (Just a); return ()
+    Just _  -> retry
+\end{haskell}
+
+Why might one want to use @MVar@ rather than @TMVar@?
+
+\begin{itemize}
+\item Performance: @MVar@ is a bit faster than @TMVar@, due to the
+  overheads of STM transactions.
+
+\item Fairness: recall from \secref{fairness} that threads blocked on
+  an @MVar@ will be unblocked one at a time in FIFO order.  In STM the
+  situation is different: when a thread is blocked in @retry@, changes
+  to any of the @TVar@s it read during the transaction cause it to
+  retry the transaction.  If multiple threads are blocked on the same
+  @TVar@, then the runtime cannot guarantee that waking up just one of
+  them will be sufficient, because that would require knowledge of the
+  nature of the transaction to be retried.  So when a @TVar@ is
+  written, all threads blocked in @retry@ after reading that @TVar@
+  will be woken.  Hence @TMVar@ does not have the fairness or
+  single-wakeup properties of @MVar@.
+\end{itemize}
+
+\Subsubsection{stm-async}{Async revisited: waiting for multiple \texttt{Async}s}
+
+\ToDo{Finish this section.}
+
+% following on from \secref{async-exceptions}, expand the API to allow
+% waiting for multiple Asyncs simultaneously
+
+\begin{haskell}
+data Async a = Async ThreadId (TMVar (Either SomeException a))
+
+async :: IO a -> IO (Async a)
+async action = do
+  var <- newEmptyTMVarIO
+  t <- forkIO (do r <- try action; atomically (putTMVar var r))
+  return (Async t var)
+
+wait :: Async a -> IO (Either SomeException a)
+wait = atomically . waitSTM
+
+waitSTM :: Async a -> STM (Either SomeException a)
+waitSTM (Async _ var) = readTMVar var
+
+cancel :: Async a -> IO ()
+cancel (Async t _) = throwTo t ThreadKilled
+\end{haskell}
+
+\ToDo{Note: not using forkFinally here, we'll introduce that later (or
+  maybe sooner? it would go nicely in the section on asynchronous
+  exceptions...)}
+
+\begin{haskell}
+waitAny :: [Async a] -> IO ()
+waitAny asyncs =
+  atomically $
+    foldr1 orElse $
+      map (void . waitSTM) asyncs
+\end{haskell}
+
+Now we can implement a version of our URL downloader that waits for
+the \emph{first} URL to complete downloading and then
+stops\footnote{full sample code in @geturlsfirst.hs@}:
+
+\begin{haskell}
+main = do
+  as <- mapM (async.http) sites
+
+  waitAny as
+  mapM_ cancel as
+  rs <- mapM wait as
+  printf "%d/%d finished\n" (length (rights rs)) (length rs)
+ where
+   http url = do
+     (page, time) <- timeit $ getURL url
+     printf "downloaded: %s (%d bytes, %.2fs)\n" url (B.length page) time
+\end{haskell}
+
+When we run this, the output will be similar to the following:
+
+\begin{verbatim}
+downloaded: http://www.google.com (11448 bytes, 0.08s)
+1/5 finished
+\end{verbatim}
+
+\ToDo{further things to add: we could do this with MVars by forking
+  new threads to do the multiplexing, but it's ugly.  Furthermore,
+  waitSTM can be composed with other blocking operations as required.}
+
+\begin{haskell}
+waitEither :: Async a -> Async b
+           -> IO (Either (Either SomeException a)
+                         (Either SomeException b))
+waitEither left right =
+  atomically $
+    (Left  <$> waitSTM left)
+      `orElse`
+    (Right <$> waitSTM right)
+\end{haskell}
+
+
+\Subsubsection{tchan}{Implementing channels with STM}
+
+For our fourth example of STM, we shall implement the @Chan@ type from
+\secref{channels} using STM.  As we'll see, using STM to implement
+@Chan@ is rather less tricky than using @MVar@s, and furthermore we
+are able to add some more complex operations that were hard or
+impossible using @MVar@s.
+
+The STM version of @Chan@ is called @TChan@\footnote{the implementation
+  is available in the module @Control.Concurrent.STM.TChan@ from the
+  @stm@ package.}, and the interface we wish to implement is as
+follows:
+
+\begin{lstlisting}[float,label=lst:tchan,caption=implementation of \texttt{TChan},language=HaskellUlisses,style=numbers]
+data TChan a = TChan (TVar (TVarList a))
+                     (TVar (TVarList a))
+
+type TVarList a = TVar (TList a)
+data TList a = TNil | TCons a (TVarList a)
+
+newTChan :: STM (TChan a)
+newTChan = do
+  hole <- newTVar TNil
+  read <- newTVar hole
+  write <- newTVar hole
+  return (TChan read write)
+
+readTChan :: TChan a -> STM a
+readTChan (TChan readVar _) = do
+  listhead <- readTVar readVar
+  head <- readTVar listhead
+  case head of
+    TNil -> retry
+    TCons val tail -> do
+        writeTVar readVar tail
+        return val
+
+writeTChan :: TChan a -> a -> STM ()
+writeTChan (TChan _ writeVar) a = do
+  new_listend <- newTVar TNil
+  listend <- readTVar writeVar
+  writeTVar writeVar new_listend
+  writeTVar listend (TCons a new_listend)
+\end{lstlisting}
+
+\begin{haskell}
+data TChan a
+
+newTChan   :: STM (TChan a)
+writeTChan :: TChan a -> a -> STM ()
+readTChan  :: TChan a -> STM a
+\end{haskell}
+
+\noindent that is, exactly the same as @Chan@, except that we renamed
+@Chan@ to @TChan@.  The full code for the implementation is given in
+\lstref{tchan}.  The implementation is similar in structure to the
+@MVar@ version in \secref{channels}, so we do not describe it line by
+line, however we shall point out a few important details:
+
+\begin{itemize}
+\item All the operations are in the @STM@ monad, so to use them they
+  need to be wrapped in @atomically@ (but they can also be composed,
+  more about that later).
+\item Blocking in @readTChan@ is implemented by the call to @retry@
+  (line 19).
+\item Nowhere did we have to worry about what happens when a read
+  executes concurrently with a write, because all the operations are
+  atomic.
+\end{itemize}
+
+Something worth noting, although this is not a direct result of STM,
+is that the straightforward implementation of @dupChan@ does not
+suffer from the problem that we had in \secref{channels}, because
+@readTChan@ does not remove elements from the list.
+
+We now describe three distinct benefits of the STM implementation
+compared to using @MVar@s.
+
+\paragraph{More operations are possible.} In \secref{channels} we
+mentioned the operation @unGetChan@, which could not be implemented
+with the desired semantics using @MVar@s.  Here is its implementation
+with STM:
+
+\begin{haskell}
+unGetTChan :: TChan a -> a -> STM ()
+unGetTChan (TChan read _write) a = do
+   listhead <- readTVar read
+   newhead <- newTVar (TCons a listhead)
+   writeTVar read newhead
+\end{haskell}
+
+\noindent The obvious implementation does the right thing here.  Other
+operations that were not possible with @MVar@s are straightforward
+with STM, for example @isEmptyTChan@, the @MVar@ version of which
+suffers from the same problem as @unGetChan@:
+
+\begin{haskell}
+isEmptyTChan :: TChan a -> STM Bool
+isEmptyTChan (TChan read _write) = do
+  listhead <- readTVar read
+  head <- readTVar listhead
+  case head of
+    TNil -> return True
+    TCons _ _ -> return False
+\end{haskell}
+
+\paragraph{Composition of blocking operations.}  Suppose we wish to
+implement an operation @readEitherTChan@ that can read an element from
+either of two channels.  If both channels are empty it blocks; if one
+channel is non-empty it reads the value from that channel, and if both
+channels are non-empty it is allowed to choose which channel to read
+from.  Its type is
+
+\begin{haskell}
+readEitherTChan :: TChan a -> TChan b -> STM (Either a b)
+\end{haskell}
+
+\noindent We cannot implement this function with the operations
+introduced so far, but STM provides one more crucial operation that
+allows blocking transactions to be composed.  The operation is
+@orElse@:
+
+\begin{haskell}
+orElse :: STM a -> STM a -> STM a
+\end{haskell}
+
+\noindent The operation @orElse a b@ has the following behaviour:
+
+\begin{itemize}
+\item First @a@ is executed.  If @a@ returns a result, then that
+  result is immediately returned by the @orElse@ call.
+\item If @a@ instead called @retry@, then \emph{@a@'s effects are
+  discarded}, and @b@ is executed instead.
+\end{itemize}
+
+We can use @orElse@ to compose blocking operations atomically.
+Returning to our example, @readEitherTChan@ could be implemented as
+follows:
+
+\begin{haskell}
+readEitherTChan :: TChan a -> TChan b -> STM (Either a b)
+readEitherTChan a b =
+  fmap Left (readTChan a)
+    `orElse`
+  fmap Right (readTChan b)
+\end{haskell}
+
+\noindent This is a straightforward composition of the two @readTChan@ calls,
+the only complication is arranging to tag the result with either
+@Left@ or @Right@ depending on which branch succeeds.
+
+In the @MVar@ implementation of @Chan@ there is no way to implement
+the operation @readEitherChan@ without elaborating the representation of @Chan@ to
+support the synchronisation protocol that would be required (more
+discussion on implementing choice with @MVar@s can be found in
+\citet{jones96concurrent}).
+
+One thing to note is that @orElse@ is left-biased; if both @TChan@s
+are non-empty, then @readEitherChan@ will always return an element
+from the first one.  Whether this is problematic or not depends on the
+application: something to be aware of is that the left-biased nature
+of @orElse@ can have implications for fairness in some situations.
+
+\paragraph{Asynchronous exception safety.} Up until now we have said
+nothing about how exceptions in STM behave.  The @STM@ monad supports
+exceptions much like the @IO@ monad, with two operations:
+
+\begin{haskell}
+throwSTM  :: Exception e => e -> STM a
+catchSTM  :: Exception e => STM a -> (e -> STM a) -> STM a
+\end{haskell}
+
+\noindent @throwSTM@ throws an exception, and @catchSTM@ catches
+exceptions and invokes a handler, just like @catch@ in the @IO@ monad.
+However, exceptions in STM are different in one vital way:
+
+\begin{itemize}
+\item In @catchSTM m h@, if @m@ raises an exception, then \emph{all of
+  its effects are discarded}, and then the handler @h@ is invoked.  As
+  a degenerate case, if there is no enclosing @catchSTM@ at all, then
+  all of the effects of the transaction are discarded and the
+  exception is propagated out of @atomically@.
+\end{itemize}
+
+\noindent This behaviour of @catchSTM@ was introduced in a subsequent
+amendment of \citet{stm}; the original behaviour in which effects were
+not discarded being generally regarded as much less useful.  An
+example helps to demonstrate the motivation:
+
+\begin{haskell}
+readCheck :: TChan a -> STM a
+readCheck chan = do
+  a <- readTChan chan
+  checkValue a
+\end{haskell}
+
+\noindent @checkValue@ imposes some extra constraints on the value
+read from the channel.  However, suppose @checkValue@ raises an
+exception (perhaps accidentally, e.g. divide-by-zero).  We would
+prefer it if the @readTChan@ had not happened, since an element of the
+channel would be lost.  Furthermore, we would like @readCheck@ to have
+this behaviour regardless of whether there is an enclosing exception
+handler or not.  Hence @catchSTM@ discards the effects of its first
+argument in the event of an exception.
+
+The discarding-effects behaviour is even more useful in the case of
+\emph{asynchronous} exceptions.  If an asynchronous exception occurs
+during an STM transaction, the entire transaction is aborted (unless
+the exception is caught and handled, but handling asynchronous
+exceptions in STM is not something we typically want to do).  So in
+most cases, asynchronous exception safety in STM consists of doing
+\emph{absolutely nothing at all}.  There are no locks to replace, so
+no need for exception handlers or @bracket@, and no need to worry
+about which critical sections to protect with @mask@.
+
+The implementation of @TChan@ given earlier is entirely safe with
+respect to asynchronous exceptions as it stands, and moreover any
+compositions of these operations are also safe.
+
+STM provides a nice way to write code that is automatically safe with
+respect to asynchronous exceptions, so it can be useful even for state
+that is not shared between threads.  The only catch is that we have to
+use STM consistently for all our state, but having made that leap,
+asynchronous exception safety comes for free.
+
+\Subsubsection{stm-cost}{Performance}
+
+As with most abstractions, STM has a runtime cost.  If we understand
+the cost model, then we can avoid writing code that hits the bad
+cases.  So in this section we give an informal description of the
+implementation of STM (at least in GHC), with enough detail that the
+reader can understand the cost model.
+
+An STM transaction works by accumulating a \emph{log} of @readTVar@
+and @writeTVar@ operations that have happened so far during the
+transaction.  The log is used in three ways:
+
+\begin{itemize}
+\item By storing @writeTVar@ operations in the log rather than
+  applying them to main memory immediately, discarding the effects of
+  a transaction is easy; we just throw away the log.  Hence, aborting
+  a transaction has a fixed small cost.
+
+\item Each @readTVar@ must traverse the log to check whether the
+  @TVar@ was written by an earlier @writeTVar@.  Hence, @readTVar@ is
+  an $O(n)$ operation in the length of the log.
+
+\item Because the log contains a record of all the @readTVar@
+  operations, it can be used to discover the full set of @TVar@s read
+  during the transaction, which we need to know in order to implement
+  @retry@.
+\end{itemize}
+
+When a transaction reaches the end, the STM implementation compares
+the log against the contents of memory using a two-phase locking
+protocol (details in \citet{stm}).  If the current contents of memory
+matches the values read by @readTVar@, the effects of the transaction
+are \emph{committed} to memory atomically, and if not, the log is
+discarded and the transaction runs again from the beginning.  The STM
+implementation in GHC does not use global locks; only the @TVar@s
+involved in the transaction are locked during commit, so transactions
+operating on disjoint sets of @TVar@s can proceed without
+interference.
+
+The general rule of thumb when using STM is never to read an unbounded
+number of @TVar@s in a single transaction, because the $O(n)$
+performance of @readTVar@ then gives $O(n^2)$ for the whole
+transaction.  Furthermore, long transactions are much more likely to
+fail to commit, because another transaction will probably have
+modified one or more of the same @TVar@s in the meantime, so there is
+a high probability of re-execution.
+
+It is possible that a future STM implementation may use a different
+data structure to store the log, reducing the @readTVar@ overhead to
+$O(\mbox{log}~n)$ or better (on average), but the likelihood that a
+long transaction will fail to commit would still be an issue.  To
+avoid that problem intelligent contention-management is required,
+which is an area of active research.
+
+\ToDo{describe the implementation of retry}
+
+\Subsubsection{stm-summary}{Summary}
+
+To summarise, STM provides several benefits for concurrent
+programming:
+
+\begin{itemize}
+\item \textbf{Composable atomicity}.  We may construct arbitrarily large atomic
+  operations on shared state, which can simplify the implementation of
+  concurrent data structures with fine-grained locking.
+\item \textbf{Composable blocking}.  We can build operations that make
+  a choice between multiple blocking operations; something which is
+  very difficult with @MVar@s and other low-level concurrency
+  abstractions.
+\item \textbf{Robustness in the presence of failure and cancellation}.
+  A transaction in progress is aborted if an exception occurs, so STM
+  makes it easy to maintain invariants on state in the presence of
+  exceptions.
+\end{itemize}
+
+\Subsubsection{stm-further}{Further reading}
+
+To find out more about STM in Haskell:
+
+\begin{itemize}
+\item \citet{stm}, the original paper describing the design of
+  Haskell's STM interface (be sure to get the revised
+  version\footnote{\url{http://research.microsoft.com/people/simonpj/}}
+  which has the modified semantics for exceptions).
+\item ``Beautiful Concurrency'' a chapter in \citet{beautiful-code}.
+\end{itemize}
+

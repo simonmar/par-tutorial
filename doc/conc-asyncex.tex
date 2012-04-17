@@ -1,0 +1,530 @@
+\Subsection{async-exceptions}{Cancellation: Asynchronous Exceptions}
+
+In an interactive application, it is often important for one thread to
+be able to \emph{interrupt} the execution of another thread when some
+particular condition occurs.  Some examples of this kind of behaviour
+in practice include:
+
+\begin{itemize}
+\item In a web browser, the thread downloading the web page and the
+  thread rendering the page need to be interrupted when the user
+  presses the ``stop'' button.
+
+\item A server application typically wants to give a client a set
+  amount of time to issue a request before closing its connection, so
+  as to avoid dormant connections using up resources.
+
+\item An application in which a compute-intensive thread is working
+  (say, rendering a visualisation of some data), and the input data
+  changes due to some user input.
+\end{itemize}
+
+The crucial design decision in supporting cancellation is whether the
+intended victim should have to poll for the cancellation condition,
+or whether the thread is immediately cancelled in some way.  This is a
+tradeoff:
+
+\begin{enumerate}
+\item If the thread has to poll, there is a danger that the programmer
+  may forget to poll regularly enough, and the thread will become
+  unresponsive, perhaps permanently so.  Unresponsive threads lead to
+  hangs and deadlocks, which are particularly unpleasant from a
+  user's perspective.
+\item If cancellation happens asynchronously, critical sections that
+  modify state need to be protected from cancellation, otherwise
+  cancellation may occur mid-update leaving some data in an
+  inconsistent state.
+\end{enumerate}
+
+In fact, the choice is really between doing only (1), or doing both
+(1) and (2), because if (2) is the default, protecting a critical
+section amounts to switching to polling behaviour for the duration of
+the critical section.
+
+In most imperative languages it is unthinkable for (2) to be the
+default, because so much code is state-modifying.  Haskell has a
+distinct advantage in this area, however: most code is purely
+functional, so it can be safely aborted or suspended, and later
+resumed, without affecting correctness.  Moreover our hand is
+forced: purely functional code cannot by definition poll for the
+cancellation condition, so it must be cancellable by default.
+
+Therefore, fully-asynchronous cancellation is the only sensible
+default in Haskell, and the design problem reduces to deciding how
+cancellation appears to code in the @IO@ monad.
+
+It makes sense for cancellation to behave like an exception, since
+exceptions are already a fact of life in the @IO@ monad, and the usual
+idioms for writing @IO@ monad code include exception handlers to
+release resources and clean up in the event of an error.  For example,
+to perform an operation that requires a temporary file, we would use
+the @bracket@ combinator to ensure that the temporary file is always
+removed, even if the operation raises an exception:
+
+\begin{haskell}
+  bracket (newTempFile "temp")
+          (\file -> removeFile file)
+          (\file -> ...)
+\end{haskell}
+
+\noindent where @bracket@ is defined thus:
+
+\begin{haskell}
+bracket :: IO a -> (a -> IO b) -> (a -> IO c) -> IO c
+bracket before after during = do
+  a <- before
+  c <- during a `onException` after a
+  after a
+  return c
+\end{haskell}
+
+\noindent and @onException@ executes its first argument, and if an
+exception is thrown, executes its second argument before re-throwing
+the exception.
+
+\begin{haskell}
+onException :: IO a -> IO b -> IO a
+\end{haskell}
+
+We want exception handlers to run in the event of cancellation, so
+cancellation should be an exception.  However, there's a fundamental
+difference between the kind of exception thrown by @openFile@ when the
+file does not exist, for example, and an exception that may arise
+\emph{at any time} because the user pressed the ``stop'' button.  We
+call the latter kind an \emph{asynchronous} exception, for obvious
+reasons.  (We do not review the Haskell support for \emph{synchronous}
+exceptions here; for that see the Haskell 2010 report
+\cite{haskell2010} and the documentation for the @Control.Exception@
+module).
+
+To initiate an asynchronous exception, Haskell provides the @throwTo@
+primitive which throws an exception from one thread to
+another \cite{spj:asynch-exceptions}:
+
+\begin{haskell}
+throwTo :: Exception e => ThreadId -> e -> IO ()
+\end{haskell}
+
+\noindent the @Exception@ constraint requires that the exception value
+being thrown is an instance of the @Exception@ class, which implements
+a simple hierarchy \cite{extensible-exceptions}.  The @ThreadId@ is a
+value previously returned by @forkIO@, and may refer to a thread in
+any state: running, blocked, or finished (in the latter case,
+@throwTo@ is a no-op).
+
+To illustrate the use of @throwTo@, we now elaborate the earlier
+example in which we downloaded several web pages concurrently, to
+allow the user to hit @'q'@ at any time to stop the downloads.
+
+First, we will extend our @Async@ mini-API to allow cancellation.  We
+add one operation:
+
+\begin{haskell}
+cancel :: Async a -> IO ()
+\end{haskell}
+
+\noindent which cancels an existing @Async@.  If the operation has
+already completed, @cancel@ has no effect.  The @wait@ operation
+cannot just return the result of the @Async@ any more, since it may
+have been cancelled.  Therefore, we extend @wait@ to return
+@Either SomeException a@, containing either the exception raised during the
+operation, or its result:
+
+\begin{haskell}
+wait :: Async a -> IO (Either SomeException a)
+\end{haskell}
+
+\noindent (@SomeException@ is the root of the exception hierarchy in Haskell.)
+In order to implement the new interface, we need to extend the @Async@
+type to include the @ThreadId@ of the child thread, and the @MVar@
+holding the result must now hold @Either SomeException a@.
+
+\begin{haskell}
+data Async a = Async ThreadId (MVar (Either SomeException a))
+\end{haskell}
+
+\noindent Given this, the implementation of @cancel@ just throws an
+exception to the thread:
+
+\begin{haskell}
+cancel :: Async a -> IO ()
+cancel (Async t var) = throwTo t ThreadKilled
+\end{haskell}
+
+\noindent (@ThreadKilled@ is an exception provided by the Haskell exception
+library and is typically used for cancelling threads in this way.)
+The implementation of @wait@ is trivial.
+The remaining piece of the implementation is the @async@ operation,
+which must now include an exception handler to catch the exception and
+store it in the @MVar@:
+
+\begin{haskell}
+async :: IO a -> IO (Async a)
+async io = do
+   m <- newEmptyMVar
+   t <- forkIO (do r <- try io; putMVar m r)
+   return (Async t m)
+\end{haskell}
+
+\noindent where @try@ is a function provided by the
+@Control.Exception@ library:
+
+\begin{haskell}
+try :: Exception e => IO a -> IO (Either e a)
+\end{haskell}
+
+Now, we can change the @main@ function of the example to support
+cancelling the downloads:
+
+\begin{numhaskell}
+main = do
+  as <- mapM (async.http) sites
+
+  forkIO $ do
+     hSetBuffering stdin NoBuffering
+     forever $ do
+        c <- getChar
+        when (c == 'q') $ mapM_ cancel as
+
+  rs <- mapM wait as
+  printf "%d/%d finished\n" (length (rights rs)) (length rs)
+\end{numhaskell}
+
+\noindent Line 2 starts the downloads as before.  Lines 4--8 fork a
+new thread that repeatedly reads characters from the standard input,
+and if a @q@ is found, calls @cancel@ on all the @Async@s.  Line 10
+waits for all the results (complete or cancelled), and line 11 emits a
+summary with a count of how many of the operations completed without
+being cancelled.  If we run the sample\footnote{full code is in the
+  sample @geturlscancel.hs@} and hit @`q`@ fast enough, we see
+something like this:
+
+\begin{verbatim}
+downloaded: http://www.google.com (14538 bytes, 0.17s)
+downloaded: http://www.bing.com (24740 bytes, 0.22s)
+q2/5 finished
+\end{verbatim}
+
+Note that this works even though the program is sitting atop a large
+and complicated HTTP library that provides no direct support for
+either cancellation or asynchronous I/O.  Haskell's support for
+cancellation is modular in this respect: most library code needs to do
+nothing to support it, although there are some simple and unintrusive
+rules that need to be followed when dealing with state, as we shall
+see in the next section.
+
+\Subsubsection{mask}{Masking asynchronous exceptions}
+
+As we mentioned earlier, the danger with fully asynchronous exceptions
+is that one might fire while we are in the middle of updating some
+shared state, leaving the data in an inconsistent state, and with a
+high probability leading to mayhem later.
+
+Hence, we certainly need a way to control the delivery of asynchronous
+exceptions during critical sections.  But we must tread carefully: it
+would be easy to provide the programmer with a way to turn off
+asynchronous exception delivery temporarily, but such a facility is in
+fact not what we really need.
+
+Consider the following problem: a thread wishes to call @takeMVar@,
+perform an operation depending on the value of the @MVar@, and finally
+put the result of the operation in the @MVar@.  The code must be
+responsive to asynchronous exceptions, but it should be safe: if an
+asynchronous exception arrives after the @takeMVar@, but before the
+final @putMVar@, the @MVar@ should not be left empty, instead the
+original value should be replaced.
+
+If we code up this problem using the facilities we already seen so
+far, we might end up with something like this:
+
+\begin{numhaskell}
+problem m f = do
+  a <- takeMVar m
+  r <- f a `catch` \e -> do putMVar m a; throw e
+  putMVar m r
+\end{numhaskell}
+
+\noindent There are at least two points where, if an asynchronous
+exception strikes, the invariant will be violated.  If an exception
+strikes between lines 2 and 3, or between lines 3 and 4, the @MVar@
+will be left empty.  In fact, there is no way to shuffle around the
+exception handlers to ensure the @MVar@ is always left full.  To fix
+this problem, Haskell provides the @mask@
+combinator\footnote{Historical note: the original presentation of
+  asynchronous exceptions used a pair of combinators @block@ and
+  @unblock@ here, but @mask@ was introduced in GHC 7.0.1 to replace
+  them as it has a more modular behaviour.}:
+
+\begin{haskell}
+mask :: ((IO a -> IO a) -> IO b) -> IO b
+\end{haskell}
+
+\noindent The type looks a bit confusing, but it isn't
+really\footnote{for simplicity here we are using a slightly less
+  general version of @mask@ than the real one in the
+  @Control.Exception@ library.}.  The @mask@ operation defers the
+delivery of asynchronous exceptions for the duration of its argument,
+and is used like this:
+
+\begin{numhaskell}
+problem m f = mask $ \restore -> do
+  a <- takeMVar m
+  r <- restore (f a) `catch` \e -> do putMVar m a; throw e
+  putMVar m r
+\end{numhaskell}
+
+\noindent @mask@ is applied to a \emph{function}, that takes as its
+argument a function @restore@, that can be used to restore the
+delivery of asynchronous exceptions to its present state.  If we
+imagine shading the entire argument to @mask@ except for the
+expression @(f a)@, asynchronous exceptions cannot be raised in the
+shaded portions.
+
+This solves the problem that we had previously, since now an exception
+can only be raised while @(f a)@ is working, and we have an exception
+handler to catch any exceptions in that case.  But a new problem has
+been introduced: @takeMVar@ might block for a long time, but it is
+inside the @mask@ and so the thread will be unresponsive for that
+time.  Furthermore there's no good reason to mask exceptions during
+@takeMVar@; it would be safe for exceptions to be raised right up
+until the point where @takeMVar@ returns.  Hence, this is exactly the
+behaviour that Haskell defines for @takeMVar@: we designate a small
+number of operations, including @takeMVar@, as \emph{interruptible}.
+Interruptible operations may receive asynchronous exceptions even
+inside @mask@.
+
+What justifies this choice?  Think of @mask@ as ``switching to polling
+mode'' for asynchronous exceptions.  Inside a @mask@, asynchronous
+exceptions are no longer asynchronous, but they can still be raised by
+certain operations.  In other words, asynchronous exceptions become
+\emph{synchronous} inside @mask@.
+
+All operations which may block indefinitely\footnote{except foreign
+  calls, for technical reasons} are designated as interruptible.  This
+turns out to be the ideal behaviour in many situations, as in
+@problem@ above.
+
+In fact, we can provide higher level combinators to insulate
+programmers from the need to use @mask@ directly.  For example, the
+function @problem@ above is generally useful when working with
+@MVar@s, and is provided under the name @modifyMVar_@ in the
+@Control.Concurrent.MVar@ library.
+
+\Subsubsection{async-safety}{Asynchronous-exception safety}
+
+All that is necessary for most code to be safe in the presence of
+asynchronous exceptions is to use operations like @modifyMVar_@
+instead of @takeMVar@ and @putMVar@ directly.  For example, consider
+the buffered channels that we defined earlier.  As defined, the
+operations are not asynchronous-exception-safe; for example,
+@writeChan@ was defined like this:
+
+\begin{numhaskell}
+writeChan :: Chan a -> a -> IO ()
+writeChan (Chan _ writeVar) val = do
+  new_hole <- newEmptyMVar
+  old_hole <- takeMVar writeVar
+  putMVar writeVar new_hole
+  putMVar old_hole (Item val new_hole)
+\end{numhaskell}
+
+\noindent there are several windows here where if an asynchronous
+exception occurs, an @MVar@ will be left empty, and subsequent users
+of the @Chan@ will deadlock.  To make it safe, we use @modifyMVar_@:
+
+\begin{numhaskell}
+writeChan (Chan _ writeVar) val = do
+  new_hole <- newEmptyMVar
+  modifyMVar_ writeVar $ \old_hole -> do
+    putMVar old_hole (Item val new_hole)
+    return new_hole
+\end{numhaskell}
+
+We saw a use of the @bracket@ function earlier; in fact, @bracket@ is
+defined with @mask@ in order to make it asynchronous-exception-safe:
+
+\begin{numhaskell}
+bracket before after thing =
+  mask $ \restore -> do
+    a <- before
+    r <- restore (thing a) `onException` after a
+    _ <- after a
+    return r
+\end{numhaskell}
+
+\Subsubsection{timeout}{Timeouts}
+
+A good illustration of programming with asynchronous exceptions is to
+write a function that can impose a time limit on a given action.  We
+want to provide the timeout wrapper as a combinator of the following
+type:
+
+\begin{haskell}
+timeout :: Integer -> IO a -> IO (Maybe a)
+\end{haskell}
+
+\noindent where @timeout @$t$@ @$m$ has the following behaviour:
+
+\begin{enumerate}
+\item @timeout @$t~m$ behaves exactly like @fmap Just @$m$ if $m$ returns a
+  result or raises an exception (including an asynchronous exception),
+  within $t$ microseconds.
+\item otherwise, $m$ is sent an asynchronous exception of the form
+  @Timeout @$u$.  @Timeout@ is a new datatype that we define, and $u$
+  is a unique value of type @Unique@, distinguishing this particular
+  instance of @timeout@ from any other.  The call to @timeout@ then
+  returns @Nothing@.
+\end{enumerate}
+
+The implementation is not expected to implement real-time semantics,
+so in practice the timeout will only be approximately $t$ microseconds.
+Note that (1) requires that $m$ is executed in the context of the
+current thread, since $m$ could call @myThreadId@, for example.  Also,
+another thread throwing an exception to the current thread with
+@throwTo@ will expect to interrupt $m$.
+
+\begin{lstlisting}[float,label=lst:timeout,caption=implementation of \texttt{timeout},language=HaskellUlisses,style=numbers]
+timeout n m
+    | n <  0    = fmap Just m
+    | n == 0    = return Nothing
+    | otherwise = do
+        pid <- myThreadId
+        u <- newUnique
+        let ex = Timeout u
+        handleJust
+           (\e -> if e == ex then Just () else Nothing)
+           (\_ -> return Nothing)
+           (bracket (forkIO $ do threadDelay n
+                                 throwTo pid ex)
+                    (\t -> throwTo t ThreadKilled)
+                    (\_ -> fmap Just m))
+\end{lstlisting}
+
+The code for @timeout@ is shown in \lstref{timeout}; this
+implementation was taken from the library @System.Timeout@ (with some
+cosmetic changes for presentation here).  The implementation is tricky
+to get right.  The basic idea is to fork a new thread that will wait
+for $t$ microseconds and then call @throwTo@ to throw the @Timeout@
+exception back to the original thread; that much seems straightforward
+enough.  However, we must ensure that this thread cannot throw its
+@Timeout@ exception after the call to @timeout@ has returned,
+otherwise the @Timeout@ exception will leak out of the call, so
+@timeout@ must kill the thread before returning.
+
+Here is how the implementation works, line by line:
+
+\begin{itemize}
+\item[1--2] Handle the easy cases, where the timeout is
+  negative or zero.
+\item[5] find the @ThreadId@ of the current thread
+\item[6--7] make a new @Timeout@ exception, by generating a unique value
+  with @newUnique@
+\item[8-14] @handleJust@ is an exception handler, with the following
+  type:
+\begin{haskell}
+handleJust :: Exception e
+           => (e -> Maybe b) -> (b -> IO a) -> IO a
+           -> IO a
+\end{haskell}
+  Its first argument (line 9) selects which exceptions to catch: in
+  this case, just the @Timeout@ exception we defined on line 7.  The
+  second argument (line 10) is the exception handler, which in this
+  case just returns @Nothing@, since timeout occurred.
+
+  Lines 11--14 are the computation to run in the exception handler.
+  @bracket@ (\secref{async-exceptions}) is used here in order to fork
+  the child thread, and ensure that it is killed before returning.
+
+  \begin{itemize}
+    \item[11-12] fork the child thread.  In the child thread we wait
+      for $n$ microseconds with @threadDelay@, and then throw the
+      @Timeout@ exception to the parent thread with @throwTo@.
+    \item [13] always kill the child thread before returning.
+    \item [14] the body of @bracket@: run the computation @m@ passed
+      in as the second argument to @timeout@, and wrap the result in
+      @Just@.
+  \end{itemize}
+\end{itemize}
+
+The reader is encouraged to verify that the implementation works by
+thinking through the two cases: either @m@ completes and returns
+@Just x@ at line 14, or, the child thread throws its exception while
+@m@ is still working.
+
+There is one tricky case to consider: what happens if \emph{both} the
+child thread and the parent thread try to call @throwTo@ at the same
+time (lines 12 and 13 respectively)?  Who wins?
+
+The answer depends on the semantics of @throwTo@.  In order for this
+implementation of @timeout@ to work properly, it must not be possible
+for the call to @bracket@ at line 11 to return while the @Timeout@
+exception can still be thrown, otherwise the exception can leak.
+Hence, the call to @throwTo@ that kills the child thread at line 13
+must be synchronous: once this call returns, the child thread cannot
+throw its exception any more.  Indeed, this guarantee is provided by
+the semantics of @throwTo@: a call to @throwTo@ only returns after the
+exception has been raised in the target thread\footnote{Note: a
+  different semantics was originally described in
+  \citet{spj:asynch-exceptions}.}.  Hence, @throwTo@ may block if the
+child thread is currently masking asynchronous exceptions with @mask@,
+and because @throwTo@ may block, it is therefore \emph{interruptible}
+and may itself receive asynchronous exceptions.
+
+Returning to our ``who wins'' question above, the answer is ``exactly
+one of them'', and that is precisely what we require to ensure the
+correct behaviour of @timeout@.
+
+\Subsubsection{async-reflections}{Asynchronous exceptions: reflections}
+
+Abstractions like @timeout@ are certainly difficult to get right, but
+fortunately they only have to be written once.  We find that in
+practice dealing with asynchronous exceptions is fairly
+straightforward, following a few simple rules:
+
+\begin{itemize}
+\item Use @bracket@ when acquiring resources that need to be released
+  again.
+\item Rather than @takeMVar@ and @putMVar@, use @modifyMVar_@ (and
+  friends) which have built-in asynchronous exception safety.
+\item If state handling starts getting complicated with multiple
+  layers of exception handlers, then there are two approaches to
+  simplifying things:
+  \begin{itemize}
+    \item Switching to polling mode with @mask@ can help manage
+      complexity.  The GHC I/O library, for example, runs entirely
+      inside @mask@.  Note that inside @mask@ it is important to
+      remember that asynchronous exceptions can still arise out of
+      interruptible operations; the documentation contains a list of
+      operations that are guaranteed \emph{not} to be interruptible.
+    \item Using Software Transactional Memory (STM) instead of @MVar@s
+      or other state representations can sweep away all the complexity
+      in one go.  We will describe STM in \secref{stm}.
+  \end{itemize}
+\end{itemize}
+
+The rules are usually not onerous: remember this only applies to code
+in the @IO@ monad, so the vast swathes of purely-functional library
+code available for Haskell is all safe by construction.  We find that
+most @IO@ monad code is straightforward to make safe, and if things
+get complicated falling back to either @mask@ or STM is a satisfactory
+solution.
+
+In exchange for following the rules, however, Haskell's approach to
+asynchronous exceptions confers many benefits.
+
+\begin{itemize}
+\item Many exceptional conditions map naturally onto asynchronous
+  exceptions.  For example, stack overflow and user interrupt
+  (e.g. control-C at the console) are mapped to asynchronous
+  exceptions in Haskell.  Hence, control-C not only aborts the program
+  but does so cleanly, running all the exception handlers.  Haskell
+  programmers have to do nothing to enable this behaviour.
+
+\item Constructs like @timeout@ always work, even with third-party
+  library code.
+
+\item Threads never just die in Haskell, it is guaranteed that a
+  thread always gets a chance to clean up and run its exception
+  handlers.
+\end{itemize}
+

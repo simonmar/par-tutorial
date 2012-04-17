@@ -1,0 +1,84 @@
+\Subsection{forking}{Forking Threads}
+
+The basic requirement of concurrency is to be able to fork a new
+thread of control.  In Concurrent Haskell this is achieved with the
+@forkIO@ operation:
+
+\begin{haskell}
+forkIO :: IO () -> IO ThreadId
+\end{haskell}
+
+\noindent @forkIO@ takes a computation of type @IO ()@ as its
+argument; that is, a computation in the @IO@ monad that eventually
+delivers a value of type @()@.  The computation passed to @forkIO@ is
+executed in a new \emph{thread} that runs concurrently with the other
+threads in the system.  If the thread has effects, those effects will
+be interleaved in an indeterminate fashion with the effects from other
+threads.
+
+To illustrate the interleaving of effects, let's try a simple example
+in which two threads are created, once which continually prints the
+letter @A@ and the other printing @B@\footnote{this is sample @fork.hs@}:
+
+\begin{numhaskell}
+import Control.Concurrent
+import Control.Monad
+import System.IO
+
+main = do
+  hSetBuffering stdout NoBuffering
+  forkIO (forever (putChar 'A'))
+  forkIO (forever (putChar 'B'))
+  threadDelay (10^6)
+\end{numhaskell}
+
+\noindent Line 6 puts the output @Handle@ into non-buffered mode, so
+that we can see the interleaving more clearly.  Lines 7 and 8 create
+the two threads, and line 9 tells the main thread to wait for one
+second (@10^6@ microseconds) and then exit.
+
+When run, this program produces output something like this:
+
+\begin{verbatim}
+AAAAAAAAABABABABABABABABABABABABABABABABABABABABABABAB
+ABABABABABABABABABABABABABABABABABABABABABABABABABABAB
+ABABABABABABABABABABABABABABABABABABABABABABABABABABAB
+ABABABABABABABABABABABABABABABABABABABABABABABABABABAB
+\end{verbatim}
+
+\noindent Note that the interleaving is non-deterministic: sometimes we get
+strings of a single letter, but often the output switches regularly
+between the two threads.  Why does it switch so regularly, and why
+does each thread only get a chance to output a single letter before
+switching?  The threads in this example are contending for a single
+resource: the @stdout@ Handle, so scheduling is affected by how
+contention for this resource is handled.  In the case of GHC a Handle
+is protected by a lock implemented as an @MVar@ (described in the next
+section).  We shall see shortly how the implementation of @MVar@s
+causes the @ABABABA@ behaviour.
+
+% ToDo: move this into a separate section and expand.
+
+We emphasised earlier that concurrency is a program structuring
+technique, or an abstraction.  Abstractions are practical when they
+are efficient, and this is where GHC's implementation of threads comes
+into its own.  Threads are extremely lightweight in GHC: a thread
+typically costs less than a hundred bytes plus the space for its
+stack, so the runtime can support literally millions of them, limited
+only by the available memory.  Unlike OS threads, the memory used by
+Haskell threads is movable, so the garbage collector can pack threads
+together tightly in memory and eliminate fragmentation.  Threads can
+also expand and shrink on demand, according to the stack demands of
+the program.  When using multiple processors, the GHC runtime system
+automatically migrates threads between cores in order to balance the
+load.
+
+User-space threading is not unique to Haskell, indeed many other
+languages, including early Java implementations, have had support for
+user-space threads (sometimes called ``green threads'').  It is often
+thought that user-space threading hinders interoperability with
+foreign code and libraries that are using OS threads, and this is one
+reason that OS threads tend to be preferred.  However, with some
+careful design it is possible to overcome these difficulties too, as
+we shall see in \secref{conc-ffi}.
+

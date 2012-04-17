@@ -1,0 +1,136 @@
+\Subsection{conc-ffi}{Concurrency and the Foreign Function Interface}
+
+Haskell has a \emph{foreign function interface} (FFI) that allows
+Haskell code to call, and be called by, foreign language code
+(primarily C) \cite{haskell2010}.  Foreign languages also have their
+own threading models --- in C there is POSIX or Win32 threads, for
+example --- so we need to specify how Concurrent Haskell interacts
+with the threading models of foreign code.
+
+The details of the design can be found in \citet{conc-ffi}, in the
+following sections we summarise the behaviour the Haskell programmer
+can expect.
+
+All of the following assumes that GHC's @-threaded@ option is in use.
+Without @-threaded@, the Haskell process uses a single OS thread only,
+and multi-threaded foreign calls are not supported.
+
+\Subsubsection{conc-ffi-outcall}{Threads and foreign out-calls}
+
+An out-call is a call made from Haskell to a foreign language.  At the
+present time the FFI supports only calls to C, so that's all we
+describe here.  In the following we refer to threads in C (i.e. POSIX
+or Win32 threads) as ``OS threads'' to distinguish them from Haskell
+threads.
+
+As an example, consider making the POSIX C function @read()@ callable
+from Haskell:
+
+\begin{haskell}
+foreign import ccall "read"
+   c_read :: CInt      -- file descriptor
+          -> Ptr Word8 -- buffer for data
+          -> CSize     -- size of buffer
+          -> CSSize    -- bytes read, or -1 on error
+\end{haskell}
+
+\noindent This declares a Haskell function @c_read@ that can be used
+to call the C function @read()@.  Full details on the syntax of
+@foreign@ declarations and the relationship between C and Haskell
+types can be found in the Haskell report \cite{haskell2010}.
+
+Just as Haskell threads run concurrently with each other, when a
+Haskell thread makes a foreign call, that foreign call runs
+concurrently with the other Haskell threads, and indeed with any other
+active foreign calls.  Clearly the only way that two C calls can be
+running concurrently is if they are running in two separate OS
+threads, so that is exactly what happens: if several Haskell threads
+call @c_read@ and they all block waiting for data to be read, there
+will be one OS thread per call blocked in @read()@.
+
+This has to work despite the fact that Haskell threads are not
+normally mapped one-to-one with OS threads; as we mentioned earlier
+(\secref{forking}), in GHC, Haskell threads are lightweight and
+managed in user-space by the runtime system.  So to handle concurrent
+foreign calls, the runtime system has to create more OS threads, and
+in fact it does this on demand.  When a Haskell thread makes a foreign
+call, another OS thread is created (if necessary), and the
+responsibility for running the remaining Haskell threads is handed
+over to the new OS thread, meanwhile the current OS thread makes the
+foreign call.
+
+The implication of this design is that a foreign call may be executed
+in \emph{any} OS thread, and subsequent calls may even be executed in
+different OS threads. In most cases this isn't important, but
+sometimes it is: some foreign code must be called by a \emph{particular}
+OS thread.  There are two instances of this requirement:
+
+\begin{itemize}
+\item Libraries that only allow one OS thread to use their API.  GUI
+  libraries often fall into this category: not only must the library
+  be called by only one OS thread, it must often be one
+  \emph{particular} thread (e.g. the main thread).  The Win32 GUI APIs
+  are an example of this.
+
+\item APIs that use internal thread-local state.  The best-known
+  example of this is OpenGL, which supports multi-threaded use, but
+  stores state between API calls in thread-local storage.  Hence,
+  subsequent calls must be made in the same OS thread, otherwise the
+  later call will see the wrong state.
+\end{itemize}
+
+For this reason, the concept of \emph{bound threads} was introduced.
+A bound thread is a Haskell thread/OS thread pair, such that foreign
+calls made by the Haskell thread always take place in the associated
+OS thread.  A bound thread is created by @forkOS@:
+
+\begin{haskell}
+forkOS :: IO () -> IO ThreadId
+\end{haskell}
+
+\noindent Care should be taken when calling @forkOS@: it creates a
+complete new OS thread, so it can be quite expensive.
+
+\Subsubsection{conc-ffi-incall}{Threads and foreign in-calls}
+
+In-calls are calls to Haskell functions that have been exposed to
+foreign code using @foreign export@.  For example, if we have a
+function @f@ of type @Int -> IO Int@, we could expose it like this:
+
+\begin{haskell}
+foreign export ccall "f" f :: Int -> IO Int
+\end{haskell}
+
+\noindent This would create a C function with the following signature:
+
+\begin{haskell}
+HsInt f(HsInt);
+\end{haskell}
+
+\noindent here @HsInt@ is the C type corresponding to Haskell's @Int@
+type.
+
+In a multi-threaded program, it is entirely possible that @f@ might be
+called by multiple OS threads concurrently.  The GHC runtime system
+supports this (at least with @-threaded@), with the following
+behaviour: each call becomes a new \emph{bound thread}.  That is, a
+new Haskell thread is created for each call, and the Haskell thread is
+bound to the OS thread that made the call.  Hence, any further
+out-calls made by the Haskell thread will take place in the same OS
+thread that made the original in-call.  This turns out to be important
+for dealing with GUI callbacks: the GUI wants to run in the main OS
+thread only, so when it makes a callback into Haskell, we need to
+ensure that GUI calls made by the callback happen in the same OS
+thread that invoked the callback.
+
+\Subsubsection{conc-ffi-further}{Further reading}
+
+\begin{itemize}
+\item The full specification of the Foreign Function Interface (FFI)
+  can be found in the Haskell 2010 report \cite{haskell2010};
+\item GHC's extensions to the FFI can be found in the GHC User's
+  Guide\footnote{\url{http://www.haskell.org/ghc/docs/latest/html/users_guide/}};
+\item Functions for dealing with bound threads can be found in the
+  documentation for the @Control.Concurrent@ module.
+\end{itemize}
+
