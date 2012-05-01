@@ -1199,7 +1199,7 @@ here, all we need to do is express the graph in the @Par@ monad:
 
 \begin{haskell}
 do
-   [ia,ib,ic] <- replicateM 4 new
+   [ia,ib,ic] <- replicateM 3 new
 
    fork $ do x <- get input
              put ia (f x)
