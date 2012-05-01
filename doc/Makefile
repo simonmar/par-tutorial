@@ -12,8 +12,8 @@ clean :
 cefp.pdf : par.tex conc.tex
 
 lab-exercises.pdf : lab-exercises.tex
-	pdflatex $<
-	pdflatex $<
+	xelatex $<
+	xelatex $<
 
 kmeans-example.png : kmeans-example-points kmeans-example-clusters
 	gnuplot -e 'set key off; set terminal png; plot "kmeans-example-points","kmeans-example-clusters" with points pointsize 20 pointtype 6' >$@
