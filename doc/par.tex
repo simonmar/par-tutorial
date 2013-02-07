@@ -1137,7 +1137,7 @@ result.  However, use @runPar@ with care: internally it is much more
 expensive than @runEval@, because (at least in the current
 implementation) it will fire up a new scheduler instance consisting of
 one worker thread per processor.  Generally speaking the program
-should be using @runPar@ to schedule large-sale parallel tasks.
+should be using @runPar@ to schedule large-scale parallel tasks.
 
 The purpose of @Par@ is to introduce parallelism, so we need a way to
 create parallel tasks:
@@ -1199,7 +1199,7 @@ here, all we need to do is express the graph in the @Par@ monad:
 
 \begin{haskell}
 do
-   [ia,ib,ic] <- replicateM 4 new
+   [ia,ib,ic] <- replicateM 3 new
 
    fork $ do x <- get input
              put ia (f x)
